@@ -1,0 +1,69 @@
+# Conda environment for the MARIDA marine plastic detection thesis.
+#
+# Create:    conda env create -f environment.yml
+# Activate:  conda activate marine-debris
+# Update:    conda env update -f environment.yml --prune
+#
+# Channel notes:
+#  - `pytorch` and `nvidia` come first so PyTorch + CUDA toolkit resolve from
+#    the upstream-maintained channels (correct CUDA/NumPy ABI alignment).
+#  - `conda-forge` provides the geospatial stack (GDAL, rasterio, geopandas);
+#    do NOT mix in `defaults` channel here as it pulls a different GDAL build
+#    and the env becomes unsolvable.
+#  - `channel_priority: flexible` lets conda pick the best build across the
+#    listed channels; strict priority breaks when a geospatial pin only exists
+#    on conda-forge but a torch dep only exists on pytorch.
+
+name: marine-debris
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+
+dependencies:
+  # Python
+  - python=3.11
+
+  # Core scientific stack
+  - numpy=1.26.*
+  - scipy=1.13.*
+  - pandas=2.2.*
+  - scikit-learn=1.5.*
+  - joblib=1.4.*
+  - tqdm=4.66.*
+  - pyyaml=6.0.*
+
+  # Geospatial stack (single conda-forge build, GDAL-aligned)
+  - gdal=3.8.*
+  - rasterio=1.3.*
+  - shapely=2.0.*
+  - fiona=1.9.*
+  - pyproj=3.6.*
+  - geopandas=0.14.*
+
+  # Visualization
+  - matplotlib=3.8.*
+  - seaborn=0.13.*
+  - pillow=10.*
+
+  # Notebooks
+  - jupyterlab=4.2.*
+  - notebook=7.2.*
+  - ipykernel=6.29.*
+  - ipywidgets=8.1.*
+
+  # Deep learning (CUDA 12.1 GPU build)
+  - pytorch=2.3.*
+  - torchvision=0.18.*
+  - pytorch-cuda=12.1
+  - torchmetrics=1.4.*
+
+  # Pip-only or version-fresher-than-conda
+  - pip=24.*
+  - pip:
+      # U-Net + ResNet/EfficientNet encoders for Model 2.
+      # pinned to a release known to work with torch 2.3.
+      - segmentation-models-pytorch==0.3.4
+      # Multi-channel image augmentation for satellite patches.
+      - albumentations==1.4.10
