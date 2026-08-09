@@ -16,7 +16,7 @@ from sklearn.metrics import classification_report
 
 from src.data.dataset_loader import load_split
 from src.models.random_forest import prepare_rf_data, load_model
-from src.validation.metrics import compute_binary_metrics
+from src.validation.metrics import compute_binary_metrics, save_metrics
 
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
@@ -55,14 +55,29 @@ def main():
     y_pred = clf.predict(X_test_scaled)
 
     print("\n=== sklearn classification report ===")
-    print(classification_report(
+    report = classification_report(
         y_test, y_pred, target_names=["Non-Debris", "Debris"], digits=4
-    ))
+    )
+    print(report)
 
     print("=== validation metrics (debris = positive class) ===")
     metrics = compute_binary_metrics(y_test, y_pred)
     for name, value in metrics.items():
         print(f"{name:>10s}: {value:.4f}")
+
+    metrics_prefix = os.path.join(EXPERIMENTS_DIR, "rf_baseline_test")
+    save_metrics(
+        metrics_prefix,
+        metrics,
+        report_text=report,
+        extra={
+            "split": "test",
+            "n_samples": int(len(X_test)),
+            "n_debris": int(y_test.sum()),
+            "n_non_debris": int((y_test == 0).sum()),
+        },
+    )
+    print(f"\nTest metrics saved to: {metrics_prefix}_metrics.json")
 
 
 if __name__ == "__main__":
