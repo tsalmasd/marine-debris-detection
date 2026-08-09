@@ -32,10 +32,13 @@ marine-plastic-detection/
 │   │   └── custom_cnn.py        # Custom CNN (Model 3) — placeholder
 │   ├── training/
 │   │   └── train.py             # Training entrypoint
-│   └── evaluation/
-│       └── metrics.py           # Precision, Recall, F1, IoU
+│   ├── validation/
+│   │   ├── metrics.py           # Precision, Recall, F1, IoU + metrics saving
+│   │   └── evaluate.py          # Test-set evaluation entrypoint
+│   └── inference/
+│       └── export_predictions.py  # Export classified GeoTIFFs for QGIS
 │
-├── experiments/         # Saved models and results
+├── experiments/         # Saved models and results (gitignored)
 ├── configs/             # YAML / JSON config files (future use)
 ├── environment.yml      # Conda env definition (sole source of truth for deps)
 ├── .gitignore
@@ -111,9 +114,40 @@ python -m src.training.train
 ```
 
 Outputs:
-- Trained model:   `experiments/rf_baseline_rf.joblib`
-- Fitted scaler:   `experiments/rf_baseline_scaler.joblib`
-- Console report:  precision / recall / F1 on validation set
+- Trained model:      `experiments/rf_baseline_rf.joblib`
+- Fitted scaler:      `experiments/rf_baseline_scaler.joblib`
+- Validation metrics: `experiments/rf_baseline_val_metrics.json` (+ `_report.txt`)
+- Console report:     precision / recall / F1 on validation set
+
+## Test-set evaluation
+
+Evaluate the trained model on the held-out test split (all valid pixels, no
+subsampling):
+
+```bash
+python -m src.validation.evaluate
+```
+
+Outputs the sklearn classification report and debris-class precision / recall /
+F1 / IoU to the console, and saves them to
+`experiments/rf_baseline_test_metrics.json` (+ `_report.txt`).
+
+## Inspecting predictions in QGIS
+
+Export per-patch classification maps as georeferenced GeoTIFFs that overlay the
+source Sentinel-2 imagery:
+
+```bash
+python -m src.inference.export_predictions --split test
+# or choose a split / output location:
+python -m src.inference.export_predictions --split val --out-dir experiments/predictions
+```
+
+Each `<patch>_pred.tif` is written to `experiments/predictions/` as a single-band
+`uint8` raster carrying the source patch's CRS and transform. Pixel values:
+`0` = non-debris, `1` = debris, `255` = nodata. An embedded colormap renders
+debris in red with everything else transparent, so the layer drops cleanly on
+top of a basemap in QGIS.
 
 ## References
 
