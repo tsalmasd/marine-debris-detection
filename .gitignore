@@ -12,6 +12,11 @@ experiments/*.pt
 experiments/*.pth
 experiments/*.h5
 
+# Run outputs (metrics + exported prediction rasters)
+experiments/*_metrics.json
+experiments/*_report.txt
+experiments/predictions/
+
 # Python
 __pycache__/
 *.py[cod]
