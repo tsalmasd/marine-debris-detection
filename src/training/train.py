@@ -6,7 +6,7 @@ Run from the repository root:
 """
 
 import os
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report
 
 from src.data.dataset_loader import load_split
 from src.models.random_forest import (
@@ -14,6 +14,7 @@ from src.models.random_forest import (
     train_random_forest,
     save_model,
 )
+from src.validation.metrics import compute_binary_metrics, save_metrics
 
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
@@ -53,14 +54,31 @@ def main():
     X_val_scaled = scaler.transform(X_val)
     y_pred = clf.predict(X_val_scaled)
 
-    print(classification_report(
-        y_val, y_pred, target_names=["Non-Debris", "Debris"]
-    ))
-    print(f"F1 (debris class): {f1_score(y_val, y_pred):.4f}")
+    report = classification_report(
+        y_val, y_pred, target_names=["Non-Debris", "Debris"], digits=4
+    )
+    print(report)
+
+    metrics = compute_binary_metrics(y_val, y_pred)
+    print(f"F1 (debris class): {metrics['f1']:.4f}")
 
     save_path = os.path.join(EXPERIMENTS_DIR, "rf_baseline")
     save_model(clf, scaler, save_path)
     print(f"Model saved to: {save_path}_rf.joblib")
+
+    metrics_prefix = os.path.join(EXPERIMENTS_DIR, "rf_baseline_val")
+    save_metrics(
+        metrics_prefix,
+        metrics,
+        report_text=report,
+        extra={
+            "split": "val",
+            "n_samples": int(len(X_val)),
+            "n_debris": int(y_val.sum()),
+            "n_non_debris": int((y_val == 0).sum()),
+        },
+    )
+    print(f"Validation metrics saved to: {metrics_prefix}_metrics.json")
 
 
 if __name__ == "__main__":
