@@ -93,6 +93,28 @@ def load_patch(
     return arr, label, conf
 
 
+def load_patch_profile(patches_root: str, patch_id: str) -> dict:
+    """
+    Return the rasterio profile (CRS, transform, dtype, ...) of a patch's image.
+
+    The pixel arrays returned by :func:`load_patch` deliberately drop all
+    georeferencing. Use this to recover the CRS + affine transform when writing
+    a derived raster (e.g. a prediction mask) that must overlay the source patch
+    in QGIS.
+
+    Args:
+        patches_root: path to data/raw/patches.
+        patch_id: ID as written in a split file (e.g. "1-12-19_48MYU_0").
+
+    Returns:
+        A copy of the rasterio profile dict for ``<patch>.tif``.
+    """
+    scene_dir, full_pid = _resolve_patch(Path(patches_root), patch_id)
+    img_path = scene_dir / f"{full_pid}.tif"
+    with rasterio.open(img_path) as src:
+        return src.profile.copy()
+
+
 def load_split(
     patches_root: str,
     split_file: str,
