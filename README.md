@@ -39,7 +39,7 @@ marine-plastic-detection/
 │   └── inference/
 │       └── export_predictions.py  # Export classified GeoTIFFs for QGIS
 │
-├── experiments/         # Saved models and results (gitignored)
+├── test/data/           # Run artifacts (gitignored): model/, val/, outputs/
 ├── configs/             # YAML / JSON config files (future use)
 ├── environment.yml      # Conda env definition (sole source of truth for deps)
 ├── .gitignore
@@ -115,8 +115,8 @@ python -m src.training.train
 ```
 
 Outputs:
-- Trained model:      `experiments/rf_baseline_rf.joblib`
-- Fitted scaler:      `experiments/rf_baseline_scaler.joblib`
+- Trained model:      `test/data/model/rf_baseline_rf.joblib`
+- Fitted scaler:      `test/data/model/rf_baseline_scaler.joblib`
 - Validation metrics: `test/data/val/rf_baseline_val_metrics.json` (+ `_report.txt`)
 - PDF report:         `test/data/val/rf_baseline_val_report.pdf`
 - Console report:     precision / recall / F1 on validation set

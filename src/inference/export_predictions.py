@@ -34,8 +34,8 @@ from src.models.random_forest import load_model, predict
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
-EXPERIMENTS_DIR = "experiments"
-MODEL_PREFIX = os.path.join(EXPERIMENTS_DIR, "rf_baseline")
+MODEL_DIR = "test/data/model"
+MODEL_PREFIX = os.path.join(MODEL_DIR, "rf_baseline")
 DEFAULT_OUT_DIR = os.path.join("test", "data", "outputs", "predictions")
 
 NODATA = 255  # value written where the source label is nodata (0)

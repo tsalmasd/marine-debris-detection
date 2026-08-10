@@ -26,9 +26,9 @@ from src.validation.report import generate_pdf_report
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR   = "data/raw/splits"
-EXPERIMENTS_DIR = "experiments"           # trained model + scaler artifacts
+MODEL_DIR       = "test/data/model"       # trained model + scaler artifacts
 TEST_OUTPUT_DIR = "test/data/outputs"     # test metrics + reports
-MODEL_PREFIX = os.path.join(EXPERIMENTS_DIR, "rf_baseline")
+MODEL_PREFIX = os.path.join(MODEL_DIR, "rf_baseline")
 
 # 256x256 patch => at most 65536 pixels; using this as the per-patch cap in
 # prepare_rf_data guarantees NO subsampling, so we evaluate on every valid pixel.

@@ -84,7 +84,7 @@ def save_metrics(
     classification report for human inspection).
 
     Args:
-        out_prefix: path prefix, e.g. "experiments/rf_baseline_test".
+        out_prefix: path prefix, e.g. "test/data/outputs/rf_baseline_test".
         metrics: dict of scalar metrics (from :func:`compute_binary_metrics`).
         report_text: optional classification-report string to save verbatim.
         extra: optional extra fields to record (e.g. sample counts, split name).

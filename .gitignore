@@ -6,20 +6,13 @@ data/processed/
 *.npy
 *.npz
 
-# Trained models
-experiments/*.joblib
-experiments/*.pt
-experiments/*.pth
-experiments/*.h5
-
-# Run outputs (metrics + PDF/text reports + exported prediction rasters)
-experiments/*_metrics.json
-experiments/*_report.txt
-experiments/*_report.pdf
-experiments/predictions/
-
-# Relocated run outputs (metrics, reports, prediction rasters)
+# Run artifacts: trained model + scaler, metrics, reports, prediction rasters
 test/data/
+
+# Deep-learning checkpoints (models 2/3), wherever they land
+*.pt
+*.pth
+*.h5
 
 # Python
 __pycache__/
