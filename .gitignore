@@ -18,6 +18,9 @@ experiments/*_report.txt
 experiments/*_report.pdf
 experiments/predictions/
 
+# Relocated run outputs (metrics, reports, prediction rasters)
+test/data/
+
 # Python
 __pycache__/
 *.py[cod]

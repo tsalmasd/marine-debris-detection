@@ -26,7 +26,8 @@ from src.validation.report import generate_pdf_report
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR   = "data/raw/splits"
-EXPERIMENTS_DIR = "experiments"
+EXPERIMENTS_DIR = "experiments"           # trained model + scaler artifacts
+TEST_OUTPUT_DIR = "test/data/outputs"     # test metrics + reports
 MODEL_PREFIX = os.path.join(EXPERIMENTS_DIR, "rf_baseline")
 
 # 256x256 patch => at most 65536 pixels; using this as the per-patch cap in
@@ -70,7 +71,8 @@ def main():
     for name, value in metrics.items():
         print(f"{name:>10s}: {value:.4f}")
 
-    metrics_prefix = os.path.join(EXPERIMENTS_DIR, "rf_baseline_test")
+    os.makedirs(TEST_OUTPUT_DIR, exist_ok=True)
+    metrics_prefix = os.path.join(TEST_OUTPUT_DIR, "rf_baseline_test")
     save_metrics(
         metrics_prefix,
         metrics,

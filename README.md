@@ -117,8 +117,8 @@ python -m src.training.train
 Outputs:
 - Trained model:      `experiments/rf_baseline_rf.joblib`
 - Fitted scaler:      `experiments/rf_baseline_scaler.joblib`
-- Validation metrics: `experiments/rf_baseline_val_metrics.json` (+ `_report.txt`)
-- PDF report:         `experiments/rf_baseline_val_report.pdf`
+- Validation metrics: `test/data/val/rf_baseline_val_metrics.json` (+ `_report.txt`)
+- PDF report:         `test/data/val/rf_baseline_val_report.pdf`
 - Console report:     precision / recall / F1 on validation set
 
 Validation metrics are computed on **all valid pixels** of the val split (no
@@ -135,9 +135,9 @@ python -m src.validation.evaluate
 
 Outputs the sklearn classification report and debris-class precision / recall /
 F1 / IoU to the console, and saves them to
-`experiments/rf_baseline_test_metrics.json` (+ `_report.txt`), plus a one-page
+`test/data/outputs/rf_baseline_test_metrics.json` (+ `_report.txt`), plus a one-page
 PDF summary (metrics table, confusion-matrix heatmap, classification report) at
-`experiments/rf_baseline_test_report.pdf`.
+`test/data/outputs/rf_baseline_test_report.pdf`.
 
 ## Inspecting predictions in QGIS
 
@@ -147,10 +147,10 @@ source Sentinel-2 imagery:
 ```bash
 python -m src.inference.export_predictions --split test
 # or choose a split / output location:
-python -m src.inference.export_predictions --split val --out-dir experiments/predictions
+python -m src.inference.export_predictions --split val --out-dir test/data/outputs/predictions
 ```
 
-Each `<patch>_pred.tif` is written to `experiments/predictions/` as a single-band
+Each `<patch>_pred.tif` is written to `test/data/outputs/predictions/` as a single-band
 `uint8` raster carrying the source patch's CRS and transform. Pixel values:
 `0` = non-debris, `1` = debris, `255` = nodata. An embedded colormap renders
 debris in red with everything else transparent, so the layer drops cleanly on

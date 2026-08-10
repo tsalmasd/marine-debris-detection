@@ -14,7 +14,7 @@ transparent, so the raster is immediately readable on top of a basemap.
 
 Run from the repository root:
     python -m src.inference.export_predictions --split test
-    python -m src.inference.export_predictions --split test --out-dir experiments/predictions
+    python -m src.inference.export_predictions --split test --out-dir test/data/outputs/predictions
 """
 
 import argparse
@@ -36,7 +36,7 @@ PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
 EXPERIMENTS_DIR = "experiments"
 MODEL_PREFIX = os.path.join(EXPERIMENTS_DIR, "rf_baseline")
-DEFAULT_OUT_DIR = os.path.join(EXPERIMENTS_DIR, "predictions")
+DEFAULT_OUT_DIR = os.path.join("test", "data", "outputs", "predictions")
 
 NODATA = 255  # value written where the source label is nodata (0)
 

@@ -24,7 +24,8 @@ from src.validation.report import generate_pdf_report
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR   = "data/raw/splits"
-EXPERIMENTS_DIR = "experiments"
+EXPERIMENTS_DIR = "experiments"      # trained model + scaler artifacts
+VAL_OUTPUT_DIR  = "test/data/val"    # validation metrics + reports
 
 # 256x256 patch => at most 65536 valid pixels. Using this as the per-patch cap
 # guarantees NO subsampling, so the validation metrics are computed on every
@@ -34,6 +35,7 @@ ALL_PIXELS = 256 * 256
 
 def main():
     os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
+    os.makedirs(VAL_OUTPUT_DIR, exist_ok=True)
 
     print("Loading training data...")
     train_bands, train_labels = load_split(
@@ -80,7 +82,7 @@ def main():
     save_model(clf, scaler, save_path)
     print(f"Model saved to: {save_path}_rf.joblib")
 
-    metrics_prefix = os.path.join(EXPERIMENTS_DIR, "rf_baseline_val")
+    metrics_prefix = os.path.join(VAL_OUTPUT_DIR, "rf_baseline_val")
     save_metrics(
         metrics_prefix,
         metrics,
