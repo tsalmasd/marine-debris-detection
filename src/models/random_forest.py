@@ -58,11 +58,14 @@ def prepare_rf_data(
         # Binary labels
         binary_label = np.where(np.isin(flat_label, list(debris_classes)), 1, 0)
 
-        # Subsample to keep training tractable
+        # Subsample to keep training tractable.
+        # replace=False: never duplicate pixels — with-replacement subsampling
+        # would inject repeated rows and distort any metric computed on the result.
         if len(features) > max_pixels_per_patch:
             features, binary_label = resample(
                 features, binary_label,
                 n_samples=max_pixels_per_patch,
+                replace=False,
                 random_state=42
             )
 
