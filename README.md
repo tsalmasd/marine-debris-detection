@@ -33,7 +33,8 @@ marine-plastic-detection/
 │   ├── training/
 │   │   └── train.py             # Training entrypoint
 │   ├── validation/
-│   │   ├── metrics.py           # Precision, Recall, F1, IoU + metrics saving
+│   │   ├── metrics.py           # Precision, Recall, F1, IoU, accuracy + confusion matrix
+│   │   ├── report.py            # One-page PDF evaluation report (matplotlib)
 │   │   └── evaluate.py          # Test-set evaluation entrypoint
 │   └── inference/
 │       └── export_predictions.py  # Export classified GeoTIFFs for QGIS
@@ -117,7 +118,11 @@ Outputs:
 - Trained model:      `experiments/rf_baseline_rf.joblib`
 - Fitted scaler:      `experiments/rf_baseline_scaler.joblib`
 - Validation metrics: `experiments/rf_baseline_val_metrics.json` (+ `_report.txt`)
+- PDF report:         `experiments/rf_baseline_val_report.pdf`
 - Console report:     precision / recall / F1 on validation set
+
+Validation metrics are computed on **all valid pixels** of the val split (no
+subsampling), so they are directly comparable to the test-set numbers.
 
 ## Test-set evaluation
 
@@ -130,7 +135,9 @@ python -m src.validation.evaluate
 
 Outputs the sklearn classification report and debris-class precision / recall /
 F1 / IoU to the console, and saves them to
-`experiments/rf_baseline_test_metrics.json` (+ `_report.txt`).
+`experiments/rf_baseline_test_metrics.json` (+ `_report.txt`), plus a one-page
+PDF summary (metrics table, confusion-matrix heatmap, classification report) at
+`experiments/rf_baseline_test_report.pdf`.
 
 ## Inspecting predictions in QGIS
 
