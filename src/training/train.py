@@ -14,12 +14,22 @@ from src.models.random_forest import (
     train_random_forest,
     save_model,
 )
-from src.validation.metrics import compute_binary_metrics, save_metrics
+from src.validation.metrics import (
+    compute_binary_metrics,
+    compute_confusion_matrix,
+    save_metrics,
+)
+from src.validation.report import generate_pdf_report
 
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR   = "data/raw/splits"
 EXPERIMENTS_DIR = "experiments"
+
+# 256x256 patch => at most 65536 valid pixels. Using this as the per-patch cap
+# guarantees NO subsampling, so the validation metrics are computed on every
+# valid pixel -- directly comparable to the test-set evaluation.
+ALL_PIXELS = 256 * 256
 
 
 def main():
@@ -38,8 +48,12 @@ def main():
     )
 
     print("Preparing features...")
+    # Training features are subsampled per patch (default cap) to stay tractable;
+    # validation features use ALL valid pixels so the reported metrics are exact.
     X_train, y_train = prepare_rf_data(train_bands, train_labels)
-    X_val,   y_val   = prepare_rf_data(val_bands,   val_labels)
+    X_val,   y_val   = prepare_rf_data(
+        val_bands, val_labels, max_pixels_per_patch=ALL_PIXELS
+    )
 
     print(
         f"Train samples: {len(X_train)} | "
@@ -79,6 +93,23 @@ def main():
         },
     )
     print(f"Validation metrics saved to: {metrics_prefix}_metrics.json")
+
+    pdf_path = f"{metrics_prefix}_report.pdf"
+    generate_pdf_report(
+        pdf_path,
+        title="Random Forest Baseline — Validation Set",
+        metrics=metrics,
+        confusion=compute_confusion_matrix(y_val, y_pred),
+        report_text=report,
+        meta={
+            "split": "validation",
+            "samples": f"{len(X_val):,} pixels (all valid, no subsampling)",
+            "debris pixels": f"{int(y_val.sum()):,}",
+            "non-debris pixels": f"{int((y_val == 0).sum()):,}",
+            "model": "RandomForest (200 trees, max_depth=20, balanced)",
+        },
+    )
+    print(f"Validation PDF report saved to: {pdf_path}")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,13 @@ import os
 from datetime import datetime
 
 import numpy as np
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    accuracy_score,
+    confusion_matrix,
+)
 
 
 def compute_iou(y_true: np.ndarray, y_pred: np.ndarray, positive_class: int = 1) -> float:
@@ -32,13 +38,36 @@ def compute_iou(y_true: np.ndarray, y_pred: np.ndarray, positive_class: int = 1)
 
 
 def compute_binary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
-    """Return precision, recall, F1, IoU for the positive class (1)."""
+    """
+    Return metrics for the binary debris (positive=1) vs non-debris (0) task.
+
+    precision/recall/F1/IoU are reported for the debris class; accuracy is the
+    overall pixel accuracy. Note that on this heavily imbalanced problem accuracy
+    is dominated by the non-debris majority and is *not* a reliable headline
+    metric -- read it alongside F1/IoU.
+    """
     return {
         "precision": precision_score(y_true, y_pred, zero_division=0),
         "recall":    recall_score(y_true, y_pred, zero_division=0),
         "f1":        f1_score(y_true, y_pred, zero_division=0),
         "iou":       compute_iou(y_true, y_pred, positive_class=1),
+        "accuracy":  accuracy_score(y_true, y_pred),
     }
+
+
+def compute_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """
+    Binary confusion matrix with a fixed [0, 1] label order.
+
+    Returns a 2x2 array laid out as::
+
+        [[TN, FP],
+         [FN, TP]]
+
+    ``labels=[0, 1]`` is passed explicitly so the shape is stable even when a
+    split contains only one class (e.g. a patch with no debris pixels).
+    """
+    return confusion_matrix(y_true, y_pred, labels=[0, 1])
 
 
 def save_metrics(

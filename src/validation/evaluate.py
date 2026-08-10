@@ -16,7 +16,12 @@ from sklearn.metrics import classification_report
 
 from src.data.dataset_loader import load_split
 from src.models.random_forest import prepare_rf_data, load_model
-from src.validation.metrics import compute_binary_metrics, save_metrics
+from src.validation.metrics import (
+    compute_binary_metrics,
+    compute_confusion_matrix,
+    save_metrics,
+)
+from src.validation.report import generate_pdf_report
 
 # Adjust these paths to match your local layout
 PATCHES_ROOT = "data/raw/patches"
@@ -78,6 +83,23 @@ def main():
         },
     )
     print(f"\nTest metrics saved to: {metrics_prefix}_metrics.json")
+
+    pdf_path = f"{metrics_prefix}_report.pdf"
+    generate_pdf_report(
+        pdf_path,
+        title="Random Forest Baseline — Test Set",
+        metrics=metrics,
+        confusion=compute_confusion_matrix(y_test, y_pred),
+        report_text=report,
+        meta={
+            "split": "test",
+            "samples": f"{len(X_test):,} pixels (all valid, no subsampling)",
+            "debris pixels": f"{int(y_test.sum()):,}",
+            "non-debris pixels": f"{int((y_test == 0).sum()):,}",
+            "model": "RandomForest (200 trees, max_depth=20, balanced)",
+        },
+    )
+    print(f"Test PDF report saved to: {pdf_path}")
 
 
 if __name__ == "__main__":

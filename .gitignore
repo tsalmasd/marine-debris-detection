@@ -12,9 +12,10 @@ experiments/*.pt
 experiments/*.pth
 experiments/*.h5
 
-# Run outputs (metrics + exported prediction rasters)
+# Run outputs (metrics + PDF/text reports + exported prediction rasters)
 experiments/*_metrics.json
 experiments/*_report.txt
+experiments/*_report.pdf
 experiments/predictions/
 
 # Python
