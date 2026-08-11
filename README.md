@@ -191,12 +191,17 @@ early stopping on validation debris-F1. A handful of MARIDA patches contain
 NaN pixels; these are sanitized to zero after normalization so they cannot
 poison the convolutions.
 
-Indicative results (debris class, test split — all valid pixels):
+Results (debris class, test split — all valid pixels):
 
 | Model | Precision | Recall | F1 | IoU |
 |-------|-----------|--------|------|------|
-| Random Forest | 0.60 | 0.81 | 0.69 | 0.53 |
-| U-Net         | 0.85 | 0.92 | 0.88 | 0.79 |
+| Random Forest (7-band + NDVI/FDI, CV-tuned) | 0.81 | 0.82 | 0.81 | 0.69 |
+| U-Net (6-band, from scratch)                | 0.85 | 0.92 | 0.88 | 0.79 |
+
+The Random Forest uses the red-edge band B06 and the Biermann (2020) FDI, with
+hyperparameters selected by cross-validation (best: `max_depth=None,
+min_samples_leaf=2, n_estimators=200`). The U-Net still leads on every metric —
+most clearly on recall and IoU — reflecting the value of spatial context.
 
 ## References
 
