@@ -203,6 +203,29 @@ hyperparameters selected by cross-validation (best: `max_depth=None,
 min_samples_leaf=2, n_estimators=200`). The U-Net still leads on every metric —
 most clearly on recall and IoU — reflecting the value of spatial context.
 
+### Feature ablation (RQ2)
+
+```bash
+python -m src.validation.ablation_features
+```
+
+Isolates the marginal value of the spectral indices and of spatial context, on
+the test split (debris class). RF hyperparameters are held fixed at the CV
+winner; only the feature set varies.
+
+| Configuration | Features | F1 | IoU |
+|---|---|---|---|
+| RF — bands only | 7 | 0.77 | 0.63 |
+| RF — indices only (NDVI, FDI) | 2 | 0.02 | 0.01 |
+| RF — bands + indices | 9 | 0.81 | 0.69 |
+| U-Net — bands + spatial context | 6 (+conv) | 0.88 | 0.79 |
+
+Reading: the raw bands carry most of the signal (0.77 F1 alone); NDVI+FDI add a
+modest but real **+0.04 F1** on top; the indices *alone* are near-useless (they
+discard absolute brightness and only sharpen a decision made from the bands).
+Adding **spatial context** (RF → U-Net) contributes more than the indices:
+**+0.07 F1 and +0.10 IoU**.
+
 ## References
 
 - Kikaki et al. (2022). *MARIDA: A benchmark for Marine Debris detection from Sentinel-2 remote sensing data.* PLOS ONE.
