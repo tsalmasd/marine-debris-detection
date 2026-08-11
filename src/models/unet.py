@@ -205,6 +205,59 @@ def build_unet(
     )
 
 
+def save_checkpoint(
+    model: UNet,
+    path: str,
+    mean,
+    std,
+    extra: dict | None = None,
+) -> None:
+    """
+    Persist a trained U-Net together with everything inference needs.
+
+    Stores the architecture config (so the model can be rebuilt without knowing
+    the hyperparameters) and the per-channel normalization stats (so inputs are
+    scaled at inference exactly as during training). ``extra`` records provenance
+    such as the best epoch / val F1.
+    """
+    import numpy as np
+
+    payload = {
+        "state_dict": model.state_dict(),
+        "config": {
+            "in_channels": model.in_channels,
+            "n_classes": model.n_classes,
+            "base_channels": model.inc.block[0].out_channels,
+            "bilinear": model.bilinear,
+        },
+        "norm_mean": np.asarray(mean, dtype="float32"),
+        "norm_std": np.asarray(std, dtype="float32"),
+    }
+    if extra:
+        payload["extra"] = extra
+    torch.save(payload, path)
+
+
+def load_checkpoint(path: str, device: str = "cpu"):
+    """
+    Rebuild a U-Net from a checkpoint written by :func:`save_checkpoint`.
+
+    Returns ``(model_in_eval_mode, mean, std)`` where mean/std are the (C,)
+    normalization arrays to apply to inputs before a forward pass.
+    """
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    cfg = ckpt["config"]
+    model = build_unet(
+        in_channels=cfg["in_channels"],
+        n_classes=cfg["n_classes"],
+        base_channels=cfg["base_channels"],
+        bilinear=cfg["bilinear"],
+    )
+    model.load_state_dict(ckpt["state_dict"])
+    model.to(device).eval()
+    return model, ckpt["norm_mean"], ckpt["norm_std"]
+
+
 if __name__ == "__main__":
     # Shape sanity check: a batch of 2 six-band 256x256 patches should map to a
     # (2, 1, 256, 256) logit map in binary mode.
