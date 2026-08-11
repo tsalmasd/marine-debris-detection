@@ -163,12 +163,14 @@ def main():
 
     ckpt_path = os.path.join(MODEL_DIR, "unet_baseline.pt")
     best_f1, best_epoch, epochs_no_improve = -1.0, -1, 0
+    history = []  # per-epoch (epoch, train_loss, val_f1) for the training curve
 
     for epoch in range(1, args.epochs + 1):
         loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
 
         y_val, y_pred = collect_flat_predictions(model, val_loader, device)
         val_f1 = f1_score(y_val, y_pred, zero_division=0)
+        history.append((epoch, loss, float(val_f1)))
         print(f"Epoch {epoch:3d}/{args.epochs} | loss {loss:.4f} | val F1 {val_f1:.4f}", end="")
 
         if val_f1 > best_f1:
@@ -186,6 +188,14 @@ def main():
                 break
 
     print(f"\nBest val F1 {best_f1:.4f} at epoch {best_epoch}. Checkpoint: {ckpt_path}")
+
+    # Persist the training history so the loss / val-F1 curve is reproducible.
+    history_path = os.path.join(VAL_OUTPUT_DIR, "unet_history.csv")
+    with open(history_path, "w") as f:
+        f.write("epoch,train_loss,val_f1\n")
+        for e, l, v in history:
+            f.write(f"{e},{l:.6f},{v:.6f}\n")
+    print(f"Training history saved to: {history_path}")
 
     # Final validation report from the best checkpoint.
     from src.models.unet import load_checkpoint
