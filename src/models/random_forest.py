@@ -7,6 +7,7 @@ Sentinel-2 bands and spectral indices as features.
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
 import joblib
@@ -30,7 +31,7 @@ def prepare_rf_data(
     Pixels are subsampled per patch to keep RAM usage manageable.
 
     Args:
-        all_bands: list of np.ndarray (6, H, W)
+        all_bands: list of np.ndarray (7, H, W) in RF_BANDS order
         all_labels: list of np.ndarray (H, W) with original MARIDA class IDs
         debris_classes: set of class IDs to consider as positive (debris)
         max_pixels_per_patch: cap on pixels sampled per patch
@@ -103,6 +104,54 @@ def train_random_forest(
     return clf, scaler
 
 
+def train_random_forest_cv(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    cv: int = 3,
+    param_grid: dict | None = None,
+) -> tuple[RandomForestClassifier, StandardScaler, dict, float]:
+    """
+    Train a Random Forest with cross-validated hyperparameter selection.
+
+    The grid is searched with ``GridSearchCV`` scored by the **debris-class F1**
+    (``scoring="f1"``, positive label = 1) rather than accuracy, since accuracy is
+    uninformative under the heavy class imbalance. The ``StandardScaler`` is fit on
+    the full training set first (it is deterministic, so per-fold leakage is
+    negligible), and the search runs on the scaled features.
+
+    Returns:
+        clf: the best RandomForestClassifier, refit on all training data.
+        scaler: the fitted StandardScaler (reuse at inference).
+        best_params: the winning hyperparameter combination.
+        best_cv_f1: the mean cross-validated debris-F1 of that combination.
+    """
+    if param_grid is None:
+        param_grid = {
+            "n_estimators": [200, 400],
+            "max_depth": [20, None],
+            "min_samples_leaf": [1, 2],
+        }
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_train)
+
+    base = RandomForestClassifier(
+        class_weight="balanced",
+        n_jobs=-1,
+        random_state=42,
+    )
+    search = GridSearchCV(
+        base,
+        param_grid,
+        scoring="f1",   # debris (positive) class F1
+        cv=cv,
+        n_jobs=1,       # RF already parallelizes across trees; avoid oversubscription
+        verbose=1,
+    )
+    search.fit(X_scaled, y_train)
+    return search.best_estimator_, scaler, search.best_params_, float(search.best_score_)
+
+
 def predict(
     clf: RandomForestClassifier,
     scaler: StandardScaler,
@@ -114,7 +163,7 @@ def predict(
     Args:
         clf: trained RandomForestClassifier
         scaler: fitted StandardScaler from training
-        bands: np.ndarray of shape (6, H, W)
+        bands: np.ndarray of shape (7, H, W) in RF_BANDS order
 
     Returns:
         Binary prediction mask of shape (H, W).
