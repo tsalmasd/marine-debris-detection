@@ -23,21 +23,25 @@ marine-plastic-detection/
 │
 ├── src/
 │   ├── data/
-│   │   └── dataset_loader.py    # Loads Sentinel-2 patches and labels
+│   │   ├── dataset_loader.py    # Loads Sentinel-2 patches and labels
+│   │   └── patch_dataset.py     # PyTorch Dataset (dense masks) for U-Net
 │   ├── features/
 │   │   └── spectral_indices.py  # NDVI, FDI, NDWI computation
 │   ├── models/
 │   │   ├── random_forest.py     # RF baseline (Model 1)
-│   │   ├── unet.py              # U-Net (Model 2) — placeholder
+│   │   ├── unet.py              # U-Net (Model 2) + checkpoint save/load
 │   │   └── custom_cnn.py        # Custom CNN (Model 3) — placeholder
 │   ├── training/
-│   │   └── train.py             # Training entrypoint
+│   │   ├── train.py             # RF training entrypoint
+│   │   └── train_unet.py        # U-Net training entrypoint
 │   ├── validation/
 │   │   ├── metrics.py           # Precision, Recall, F1, IoU, accuracy + confusion matrix
 │   │   ├── report.py            # One-page PDF evaluation report (matplotlib)
-│   │   └── evaluate.py          # Test-set evaluation entrypoint
+│   │   ├── evaluate.py          # RF test-set evaluation entrypoint
+│   │   └── evaluate_unet.py     # U-Net test-set evaluation entrypoint
 │   └── inference/
-│       └── export_predictions.py  # Export classified GeoTIFFs for QGIS
+│       ├── export_predictions.py       # Export RF GeoTIFFs for QGIS
+│       └── export_predictions_unet.py  # Export U-Net GeoTIFFs for QGIS
 │
 ├── test/data/           # Run artifacts (gitignored): model/, val/, outputs/
 ├── configs/             # YAML / JSON config files (future use)
@@ -155,6 +159,44 @@ Each `<patch>_pred.tif` is written to `test/data/outputs/predictions/` as a sing
 `0` = non-debris, `1` = debris, `255` = nodata. An embedded colormap renders
 debris in red with everything else transparent, so the layer drops cleanly on
 top of a basemap in QGIS.
+
+## U-Net segmentation model
+
+A second baseline: a from-scratch U-Net that solves the **same binary
+debris/non-debris task** on the same MARIDA splits, but end-to-end from the raw
+6-band patches (it learns spatial context, unlike the pixel-wise RF).
+
+```bash
+# train (writes checkpoint + validation metrics/report/PDF)
+python -m src.training.train_unet                 # 80 epochs, early-stop on val F1
+python -m src.training.train_unet --epochs 30     # shorter run
+
+# evaluate on the test split
+python -m src.validation.evaluate_unet
+
+# export test predictions for QGIS
+python -m src.inference.export_predictions_unet --split test
+```
+
+Outputs (mirroring the RF layout):
+- Checkpoint:          `test/data/model/unet_baseline.pt` (weights + normalization stats)
+- Validation metrics:  `test/data/val/unet_val_metrics.json` (+ `_report.txt`, `_report.pdf`)
+- Test metrics:        `test/data/outputs/unet_test_metrics.json` (+ `_report.txt`, `_report.pdf`)
+- Predictions:         `test/data/outputs/predictions_unet/` (same GeoTIFF format as the RF exporter)
+
+Training details: per-channel normalization (stats computed on the train split),
+masked `BCEWithLogitsLoss` + soft-Dice (nodata pixels excluded; `pos_weight`
+capped to keep the extreme debris imbalance stable), Adam + gradient clipping,
+early stopping on validation debris-F1. A handful of MARIDA patches contain
+NaN pixels; these are sanitized to zero after normalization so they cannot
+poison the convolutions.
+
+Indicative results (debris class, test split — all valid pixels):
+
+| Model | Precision | Recall | F1 | IoU |
+|-------|-----------|--------|------|------|
+| Random Forest | 0.60 | 0.81 | 0.69 | 0.53 |
+| U-Net         | 0.85 | 0.92 | 0.88 | 0.79 |
 
 ## References
 
