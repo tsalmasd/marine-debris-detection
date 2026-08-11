@@ -28,6 +28,7 @@ from src.data.dataset_loader import (
     _resolve_patch,
     load_patch,
     load_patch_profile,
+    RF_BANDS,
 )
 from src.models.random_forest import load_model, predict
 
@@ -108,7 +109,7 @@ def export_split_predictions(
             missing += 1
             continue
 
-        bands, label = load_patch(patches_root, pid)
+        bands, label = load_patch(patches_root, pid, bands=RF_BANDS)
         profile = load_patch_profile(patches_root, pid)
         pred = predict(clf, scaler, bands)
 

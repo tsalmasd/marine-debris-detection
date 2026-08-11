@@ -14,7 +14,7 @@ import os
 import numpy as np
 from sklearn.metrics import classification_report
 
-from src.data.dataset_loader import load_split
+from src.data.dataset_loader import load_split, RF_BANDS
 from src.models.random_forest import prepare_rf_data, load_model
 from src.validation.metrics import (
     compute_binary_metrics,
@@ -43,6 +43,7 @@ def main():
     test_bands, test_labels = load_split(
         PATCHES_ROOT,
         os.path.join(SPLITS_DIR, "test_X.txt"),
+        bands=RF_BANDS,
     )
 
     print("Preparing features (all valid pixels, no subsampling)...")

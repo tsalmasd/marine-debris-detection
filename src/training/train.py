@@ -8,10 +8,10 @@ Run from the repository root:
 import os
 from sklearn.metrics import classification_report
 
-from src.data.dataset_loader import load_split
+from src.data.dataset_loader import load_split, RF_BANDS
 from src.models.random_forest import (
     prepare_rf_data,
-    train_random_forest,
+    train_random_forest_cv,
     save_model,
 )
 from src.validation.metrics import (
@@ -40,13 +40,15 @@ def main():
     print("Loading training data...")
     train_bands, train_labels = load_split(
         PATCHES_ROOT,
-        os.path.join(SPLITS_DIR, "train_X.txt")
+        os.path.join(SPLITS_DIR, "train_X.txt"),
+        bands=RF_BANDS,
     )
 
     print("Loading validation data...")
     val_bands, val_labels = load_split(
         PATCHES_ROOT,
-        os.path.join(SPLITS_DIR, "val_X.txt")
+        os.path.join(SPLITS_DIR, "val_X.txt"),
+        bands=RF_BANDS,
     )
 
     print("Preparing features...")
@@ -63,8 +65,9 @@ def main():
         f"Non-debris: {(y_train == 0).sum()}"
     )
 
-    print("Training Random Forest...")
-    clf, scaler = train_random_forest(X_train, y_train)
+    print("Training Random Forest (cross-validated hyperparameter search)...")
+    clf, scaler, best_params, best_cv_f1 = train_random_forest_cv(X_train, y_train)
+    print(f"Best CV debris-F1: {best_cv_f1:.4f} | best params: {best_params}")
 
     print("Evaluating on validation set...")
     X_val_scaled = scaler.transform(X_val)
@@ -92,6 +95,9 @@ def main():
             "n_samples": int(len(X_val)),
             "n_debris": int(y_val.sum()),
             "n_non_debris": int((y_val == 0).sum()),
+            "features": "B02,B03,B04,B06,B08,B11,B12,NDVI,FDI",
+            "cv_best_params": best_params,
+            "cv_best_f1": best_cv_f1,
         },
     )
     print(f"Validation metrics saved to: {metrics_prefix}_metrics.json")
@@ -108,7 +114,7 @@ def main():
             "samples": f"{len(X_val):,} pixels (all valid, no subsampling)",
             "debris pixels": f"{int(y_val.sum()):,}",
             "non-debris pixels": f"{int((y_val == 0).sum()):,}",
-            "model": "RandomForest (200 trees, max_depth=20, balanced)",
+            "model": f"RandomForest (CV-tuned, balanced) {best_params}",
         },
     )
     print(f"Validation PDF report saved to: {pdf_path}")
