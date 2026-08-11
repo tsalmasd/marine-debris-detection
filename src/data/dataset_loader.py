@@ -28,8 +28,14 @@ MARIDA_BAND_ORDER = [
 ]
 MARIDA_BAND_INDEX = {name: i + 1 for i, name in enumerate(MARIDA_BAND_ORDER)}
 
-# Default 6-band subset used by the RF baseline and spectral-index pipeline.
+# Default 6-band subset used by the deep models (U-Net) — visible + NIR + SWIR.
 DEFAULT_BANDS = ["B02", "B03", "B04", "B08", "B11", "B12"]
+
+# Random Forest band set: the 6-band subset PLUS the red-edge band B06 (740 nm),
+# which the Biermann et al. (2020) Floating Debris Index uses as its baseline
+# anchor. Order matters — it must match the unpacking in
+# ``src.features.spectral_indices.extract_features_from_patch``.
+RF_BANDS = ["B02", "B03", "B04", "B06", "B08", "B11", "B12"]
 
 
 def _resolve_patch(patches_root: Path, patch_id: str) -> tuple[Path, str]:
