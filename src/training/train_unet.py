@@ -102,6 +102,71 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
     return running / len(loader.dataset)
 
 
+def fit_unet(
+    train_loader,
+    val_loader,
+    mean,
+    std,
+    pos_weight,
+    device,
+    *,
+    epochs,
+    lr,
+    base_channels,
+    patience,
+    use_amp,
+    ckpt_path,
+    seed=42,
+    verbose=True,
+) -> dict:
+    """
+    Train one U-Net with early stopping on validation F1, saving the best
+    checkpoint to ``ckpt_path``. Returns ``{best_f1, best_epoch, history}``.
+
+    Reusable across seeds (the multi-seed sweep calls this directly with prebuilt
+    loaders, so the cached datasets are built only once).
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    model = build_unet(in_channels=6, n_classes=1, base_channels=base_channels).to(device)
+    criterion = nn.BCEWithLogitsLoss(
+        reduction="none",
+        pos_weight=torch.tensor([pos_weight], device=device),
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+
+    best_f1, best_epoch, no_improve = -1.0, -1, 0
+    history = []
+    for epoch in range(1, epochs + 1):
+        loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
+        y_val, y_pred = collect_flat_predictions(model, val_loader, device)
+        val_f1 = f1_score(y_val, y_pred, zero_division=0)
+        history.append((epoch, loss, float(val_f1)))
+        if verbose:
+            print(f"Epoch {epoch:3d}/{epochs} | loss {loss:.4f} | val F1 {val_f1:.4f}", end="")
+
+        if val_f1 > best_f1:
+            best_f1, best_epoch, no_improve = val_f1, epoch, 0
+            save_checkpoint(
+                model, ckpt_path, mean, std,
+                extra={"best_epoch": epoch, "val_f1": float(val_f1), "seed": seed},
+            )
+            if verbose:
+                print("  <- best (saved)")
+        else:
+            no_improve += 1
+            if verbose:
+                print(f"  (no improve {no_improve}/{patience})")
+            if no_improve >= patience:
+                if verbose:
+                    print(f"Early stopping at epoch {epoch} (best F1 {best_f1:.4f} @ epoch {best_epoch}).")
+                break
+
+    return {"best_f1": best_f1, "best_epoch": best_epoch, "history": history}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=80)
@@ -150,44 +215,17 @@ def main():
     print(f"Train patches: {len(train_ds)} | Val patches: {len(val_ds)} | "
           f"pos_weight: {pos_weight:.1f} (raw {raw_pos_weight:.1f}, capped at {args.max_pos_weight:.0f})")
 
-    model = build_unet(in_channels=6, n_classes=1, base_channels=args.base_channels).to(device)
-    n_params = sum(p.numel() for p in model.parameters())
+    n_params = sum(p.numel() for p in build_unet(in_channels=6, base_channels=args.base_channels).parameters())
     print(f"U-Net parameters: {n_params:,}")
 
-    criterion = nn.BCEWithLogitsLoss(
-        reduction="none",
-        pos_weight=torch.tensor([pos_weight], device=device),
-    )
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-
     ckpt_path = os.path.join(MODEL_DIR, "unet_baseline.pt")
-    best_f1, best_epoch, epochs_no_improve = -1.0, -1, 0
-    history = []  # per-epoch (epoch, train_loss, val_f1) for the training curve
-
-    for epoch in range(1, args.epochs + 1):
-        loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp)
-
-        y_val, y_pred = collect_flat_predictions(model, val_loader, device)
-        val_f1 = f1_score(y_val, y_pred, zero_division=0)
-        history.append((epoch, loss, float(val_f1)))
-        print(f"Epoch {epoch:3d}/{args.epochs} | loss {loss:.4f} | val F1 {val_f1:.4f}", end="")
-
-        if val_f1 > best_f1:
-            best_f1, best_epoch, epochs_no_improve = val_f1, epoch, 0
-            save_checkpoint(
-                model, ckpt_path, mean, std,
-                extra={"best_epoch": epoch, "val_f1": float(val_f1)},
-            )
-            print("  <- best (saved)")
-        else:
-            epochs_no_improve += 1
-            print(f"  (no improve {epochs_no_improve}/{args.patience})")
-            if epochs_no_improve >= args.patience:
-                print(f"Early stopping at epoch {epoch} (best F1 {best_f1:.4f} @ epoch {best_epoch}).")
-                break
-
-    print(f"\nBest val F1 {best_f1:.4f} at epoch {best_epoch}. Checkpoint: {ckpt_path}")
+    result = fit_unet(
+        train_loader, val_loader, mean, std, pos_weight, device,
+        epochs=args.epochs, lr=args.lr, base_channels=args.base_channels,
+        patience=args.patience, use_amp=use_amp, ckpt_path=ckpt_path, seed=args.seed,
+    )
+    best_epoch, history = result["best_epoch"], result["history"]
+    print(f"\nBest val F1 {result['best_f1']:.4f} at epoch {best_epoch}. Checkpoint: {ckpt_path}")
 
     # Persist the training history so the loss / val-F1 curve is reproducible.
     history_path = os.path.join(VAL_OUTPUT_DIR, "unet_history.csv")
