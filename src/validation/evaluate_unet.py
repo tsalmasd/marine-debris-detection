@@ -10,6 +10,7 @@ Run from the repository root:
     python -m src.validation.evaluate_unet
 """
 
+import argparse
 import os
 
 import numpy as np
@@ -65,8 +66,17 @@ def collect_flat_predictions(
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--threshold", type=float, default=0.5,
+        help="Decision threshold for the debris class. Default 0.5 keeps previously "
+             "reported numbers reproducible. Pass a value selected on the VALIDATION "
+             "split (see src/validation/threshold.py); never one chosen on test.",
+    )
+    args = parser.parse_args()
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}")
+    print(f"Device: {device} | threshold: {args.threshold}")
 
     print("Loading trained U-Net checkpoint...")
     model, mean, std = load_checkpoint(MODEL_PATH, device=device)
@@ -81,7 +91,9 @@ def main():
     test_loader = DataLoader(test_ds, batch_size=8, shuffle=False, num_workers=0)
 
     print("Running inference (all valid pixels)...")
-    y_test, y_pred = collect_flat_predictions(model, test_loader, device)
+    y_test, y_pred = collect_flat_predictions(
+        model, test_loader, device, threshold=args.threshold
+    )
 
     print(
         f"Test samples: {len(y_test)} | "
@@ -110,6 +122,7 @@ def main():
         extra={
             "model": "unet",
             "split": "test",
+            "threshold": float(args.threshold),
             "n_samples": int(len(y_test)),
             "n_debris": int(y_test.sum()),
             "n_non_debris": int((y_test == 0).sum()),
@@ -130,6 +143,7 @@ def main():
             "samples": f"{len(y_test):,} pixels (all valid, no subsampling)",
             "debris pixels": f"{int(y_test.sum()):,}",
             "non-debris pixels": f"{int((y_test == 0).sum()):,}",
+            "threshold": f"{args.threshold:g}",
         },
     )
     print(f"Test PDF report saved to: {pdf_path}")
