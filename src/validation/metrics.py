@@ -16,6 +16,8 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     accuracy_score,
+    balanced_accuracy_score,
+    matthews_corrcoef,
     confusion_matrix,
 )
 
@@ -41,17 +43,26 @@ def compute_binary_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     """
     Return metrics for the binary debris (positive=1) vs non-debris (0) task.
 
-    precision/recall/F1/IoU are reported for the debris class; accuracy is the
-    overall pixel accuracy. Note that on this heavily imbalanced problem accuracy
-    is dominated by the non-debris majority and is *not* a reliable headline
-    metric -- read it alongside F1/IoU.
+    precision/recall/F1/IoU are reported for the debris (positive) class and use
+    no true-negatives, so they are already robust to the class imbalance. MCC and
+    balanced accuracy summarise both classes:
+
+      - ``mcc`` (Matthews Correlation Coefficient, range [-1, 1]) is the
+        recommended single imbalance-aware score -- it uses all four confusion
+        cells and is high only when both classes are predicted well.
+      - ``balanced_accuracy`` = mean of per-class recall; better than raw accuracy
+        but, under extreme imbalance, specificity saturates so it stays optimistic.
+      - ``accuracy`` is dominated by the non-debris majority and is *not* a
+        reliable headline metric here -- kept only for reference.
     """
     return {
-        "precision": precision_score(y_true, y_pred, zero_division=0),
-        "recall":    recall_score(y_true, y_pred, zero_division=0),
-        "f1":        f1_score(y_true, y_pred, zero_division=0),
-        "iou":       compute_iou(y_true, y_pred, positive_class=1),
-        "accuracy":  accuracy_score(y_true, y_pred),
+        "precision":         precision_score(y_true, y_pred, zero_division=0),
+        "recall":            recall_score(y_true, y_pred, zero_division=0),
+        "f1":                f1_score(y_true, y_pred, zero_division=0),
+        "iou":               compute_iou(y_true, y_pred, positive_class=1),
+        "mcc":               matthews_corrcoef(y_true, y_pred),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+        "accuracy":          accuracy_score(y_true, y_pred),
     }
 
 
