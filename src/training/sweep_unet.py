@@ -38,7 +38,7 @@ MODEL_DIR = "test/data/model"
 VAL_OUTPUT_DIR = "test/data/val"
 OUTPUT_DIR = "test/data/outputs"
 
-METRIC_KEYS = ["precision", "recall", "f1", "iou"]
+METRIC_KEYS = ["precision", "recall", "f1", "iou", "mcc", "balanced_accuracy"]
 
 
 def main():
@@ -107,11 +107,11 @@ def main():
            for k in METRIC_KEYS}
 
     print("=== per-seed test metrics ===")
-    print(f"{'seed':>5}{'val_f1':>9}{'precision':>11}{'recall':>9}{'f1':>8}{'iou':>8}")
+    print(f"{'seed':>5}{'val_f1':>9}{'precision':>11}{'recall':>9}{'f1':>8}{'iou':>8}{'mcc':>8}")
     for r in runs:
         t = r["test"]
         print(f"{r['seed']:>5}{r['val_f1']:>9.4f}{t['precision']:>11.4f}"
-              f"{t['recall']:>9.4f}{t['f1']:>8.4f}{t['iou']:>8.4f}")
+              f"{t['recall']:>9.4f}{t['f1']:>8.4f}{t['iou']:>8.4f}{t['mcc']:>8.4f}")
     print("\n=== test mean ± std across seeds ===")
     for k in METRIC_KEYS:
         print(f"  {k:>9}: {agg[k]['mean']:.3f} ± {agg[k]['std']:.3f}")
