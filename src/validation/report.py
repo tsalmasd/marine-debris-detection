@@ -19,13 +19,15 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 
 # Order in which metrics are printed in the report table.
-_METRIC_ORDER = ["precision", "recall", "f1", "iou", "accuracy"]
+_METRIC_ORDER = ["precision", "recall", "f1", "iou", "mcc", "balanced_accuracy", "accuracy"]
 _METRIC_LABELS = {
-    "precision": "Precision (debris)",
-    "recall":    "Recall (debris)",
-    "f1":        "F1 (debris)",
-    "iou":       "IoU (debris)",
-    "accuracy":  "Accuracy (overall)",
+    "precision":         "Precision (debris)",
+    "recall":            "Recall (debris)",
+    "f1":                "F1 (debris)",
+    "iou":               "IoU (debris)",
+    "mcc":               "MCC (imbalance-aware)",
+    "balanced_accuracy": "Balanced accuracy",
+    "accuracy":          "Accuracy (overall)",
 }
 
 
