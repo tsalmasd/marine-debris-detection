@@ -2,6 +2,11 @@
 
 Master's thesis project: validation and comparison of three models for detecting marine plastic debris in Sentinel-2 imagery using the [MARIDA Benchmark Dataset](https://github.com/marine-debris/marine-debris.github.io).
 
+> **Next work is planned in [`LOSS_ABLATION_PLAN.md`](LOSS_ABLATION_PLAN.md)** —
+> loss-objective ablation, reporting repairs, and Model 3. Read it before
+> changing the U-Net objective or the reported metrics; it records the
+> derivations behind those decisions.
+
 ## Models compared
 
 1. **Random Forest** — traditional machine learning baseline (pixel-wise classification)
