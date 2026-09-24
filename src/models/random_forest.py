@@ -22,7 +22,8 @@ def prepare_rf_data(
     all_labels: list,
     debris_classes: set = {1},
     max_pixels_per_patch: int = 500,
-    exclude_nodata: bool = True
+    exclude_nodata: bool = True,
+    random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Convert a list of patches into flat (N_pixels, N_features) arrays for RF.
@@ -36,6 +37,12 @@ def prepare_rf_data(
         debris_classes: set of class IDs to consider as positive (debris)
         max_pixels_per_patch: cap on pixels sampled per patch
         exclude_nodata: drop pixels labeled 0 (nodata)
+        random_state: seed for the per-patch subsample. Vary it (together with
+            the forest's own ``random_state``) to measure run-to-run spread --
+            holding it fixed while varying only the forest understates the
+            variance, because the training draw is then identical every time.
+            Irrelevant when ``max_pixels_per_patch`` is large enough that no
+            subsampling occurs, as in test/validation evaluation.
 
     Returns:
         X: np.ndarray of shape (N, 9) -- features
@@ -67,7 +74,7 @@ def prepare_rf_data(
                 features, binary_label,
                 n_samples=max_pixels_per_patch,
                 replace=False,
-                random_state=42
+                random_state=random_state
             )
 
         X_list.append(features)
