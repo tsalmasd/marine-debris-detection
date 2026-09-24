@@ -142,7 +142,8 @@ figure.
 `:97-99`), reports test **mean±std** (`:104-117`) — then deletes the non-promoted
 checkpoints (`:138-142`). Its own docstring says single-run test metrics are
 high-variance because the test split has ≈381 debris pixels (`:4-5`). Yet
-`README.md:196-199` still reports single-point numbers.
+`README.md` reported single-point numbers when this was written; corrected by R4
+on 2026-09-24. The finding itself stands — it is why R4 existed.
 
 ### F-F. Focal has less to bite on here than usual
 
@@ -361,12 +362,33 @@ table.
 
 ## 8. Suggested order
 
-1. **R1, R2, R5** — free, no GPU, removes viva liabilities immediately.
-2. **R4** — one sweep run; fixes the headline numbers.
-3. **R3** — then re-run evaluation; corrected numbers become the baseline.
-4. **A1, A2** (guarded by R5) → **A3, A4, A5** → **P1, P2**.
+~~1. **R1, R2, R5**~~ → R1, R2, R5 still open; free, no GPU, removes viva
+   liabilities immediately.
+~~2. **R4**~~ — done 2026-09-24.
+~~3. **R3**~~ — resolved as unnecessary 2026-09-24; premise was false.
+
+Revised order from here:
+
+1. **R1, R2, R5** — unchanged, and R5 still gates Sprint A.
+2. **Give the RF error bars.** It is a single `random_state=42` fit
+   (`random_forest.py:100,141`) being compared against a five-seed distribution.
+   Re-fit across the same 5 seeds so both sides of the headline claim are stated
+   the same way. Cheap, CPU-only, and it is the weakest link in the current
+   "they finish level" claim.
+3. **A statistical comparison worth the name.** Paired per-seed deltas plus a
+   patch-level bootstrap CI on the test split. With 381 debris pixels this is
+   what turns "they tie" from a hedge into a result.
+4. **A1, A2** (guarded by R5) → **A3, A4, A5** → **P1, P2**. Note the reframing
+   in §1: the ablation is now diagnostic, not a performance chase, and F-A is its
+   hypothesis.
 5. **C1-C3** in parallel with the ablation runs if GPU time is the bottleneck.
 6. **P3, P4** last — genuinely secondary.
+
+Not in the original plan, worth a pre-registered decision: the U-Net dataset
+applies **no augmentation** (no flips or rotations in
+`patch_dataset.MaridaSegmentationDataset`). That is a standard, cheap lever
+against the ±0.06 seed spread, but it changes the model being compared — so
+decide before running it, not after seeing the number.
 
 Sprint R alone is a demoable improvement: corrected docs, honest headline numbers,
 a test suite where there was none. Sprint A is demoable as a comparison table
