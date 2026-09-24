@@ -196,17 +196,57 @@ early stopping on validation debris-F1. A handful of MARIDA patches contain
 NaN pixels; these are sanitized to zero after normalization so they cannot
 poison the convolutions.
 
+### Reproducibility: report seeds, not single runs
+
+The test split carries **381 debris pixels among 194,863 valid ones**, so a
+single training run measures the seed as much as the model. U-Net results are
+therefore reported as mean ± SD over five seeds:
+
+```bash
+python -m src.training.sweep_unet          # 5 seeds; writes unet_seed_sweep.json
+```
+
+Each seed early-stops on validation F1; the promoted checkpoint (used for the
+figures and the prediction exports) is chosen on **validation** F1 alone. The
+test split is never consulted in that choice, and validation metrics are
+selection scores — not generalization estimates — so they are not quoted here.
+
 Results (debris class, test split — all valid pixels):
 
 | Model | Precision | Recall | F1 | IoU |
 |-------|-----------|--------|------|------|
 | Random Forest (7-band + NDVI/FDI, CV-tuned) | 0.81 | 0.82 | 0.81 | 0.69 |
-| U-Net (6-band, from scratch)                | 0.85 | 0.92 | 0.88 | 0.79 |
+| U-Net (6-band, from scratch, 5 seeds)       | 0.71 ± 0.09 | 0.91 ± 0.02 | 0.80 ± 0.06 | 0.67 ± 0.08 |
+
+Per-seed U-Net test F1 ranges **0.71 – 0.87** (`test/data/outputs/unet_seed_sweep.json`),
+while validation F1 is near-constant at 0.898 ± 0.006 — the signature of a small
+evaluation set, not of unstable training.
+
+**The two models finish level.** On F1 and IoU the gap is smaller than the seed
+spread. What separates them is an *operating point*, not accuracy: the U-Net
+trades precision for recall (0.91 recall vs 0.82, bought at 0.71 precision vs
+0.81), and it does so in every run.
+
+The comparison is in fact slightly worse than a tie for the U-Net. Sweeping the
+promoted seed's decision threshold traces its full precision-recall frontier,
+and the RF operating point sits **above** that curve: matched at the RF's own
+recall (0.824) the U-Net reaches 0.777 precision against the RF's 0.805, and
+even at its oracle-best threshold it reaches F1 0.806 against the RF's 0.815.
+Threshold-free average precision is 0.815. So for this seed there is no
+threshold at which the U-Net dominates the baseline.
 
 The Random Forest uses the red-edge band B06 and the Biermann (2020) FDI, with
 hyperparameters selected by cross-validation (best: `max_depth=None,
-min_samples_leaf=2, n_estimators=200`). The U-Net still leads on every metric —
-most clearly on recall and IoU — reflecting the value of spatial context.
+min_samples_leaf=2, n_estimators=200`). It is fitted once from a fixed seed, so
+it contributes a single point rather than a distribution.
+
+Two caveats bound all of the above. Evaluation rests on those 381 debris pixels,
+so differences of a few hundredths of F1 are not measurable here. And MARIDA
+labels only ~0.99% of the pixels in a patch (213,102 of 21,495,808 on the val
+split); the rest are *unlabelled*, not verified debris-free, and are excluded
+from both loss and metrics. The imbalance these models actually confront is
+≈197:1 **among annotated pixels**, and the false-positive rate over open water
+is not measured by these experiments at all.
 
 ### Feature ablation (RQ2)
 
