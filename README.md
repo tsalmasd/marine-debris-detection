@@ -208,7 +208,13 @@ therefore reported as mean ± SD over five seeds:
 
 ```bash
 python -m src.training.sweep_unet          # 5 seeds; writes unet_seed_sweep.json
+python -m src.training.sweep_rf            # same, for the RF (CPU, minutes)
 ```
+
+The RF sweep exists so both sides of the comparison are stated the same way — a
+single fit compared against a distribution is not a comparison. It varies the
+per-patch training subsample *and* the forest's own randomness, with
+hyperparameters frozen at the CV winner.
 
 Each seed early-stops on validation F1; the promoted checkpoint (used for the
 figures and the prediction exports) is chosen on **validation** F1 alone. The
@@ -217,19 +223,53 @@ selection scores — not generalization estimates — so they are not quoted her
 
 Results (debris class, test split — all valid pixels):
 
+Both models over 5 seeds (mean ± SD):
+
 | Model | Precision | Recall | F1 | IoU |
 |-------|-----------|--------|------|------|
-| Random Forest (7-band + NDVI/FDI, CV-tuned) | 0.81 | 0.82 | 0.81 | 0.69 |
-| U-Net (6-band, from scratch, 5 seeds)       | 0.71 ± 0.09 | 0.91 ± 0.02 | 0.80 ± 0.06 | 0.67 ± 0.08 |
+| Random Forest (7-band + NDVI/FDI, CV-tuned) | 0.808 ± 0.006 | 0.828 ± 0.003 | **0.818 ± 0.003** | 0.692 ± 0.004 |
+| U-Net (6-band, from scratch)                | 0.714 ± 0.087 | 0.910 ± 0.021 | **0.798 ± 0.060** | 0.668 ± 0.083 |
 
-Per-seed U-Net test F1 ranges **0.71 – 0.87** (`test/data/outputs/unet_seed_sweep.json`),
-while validation F1 is near-constant at 0.898 ± 0.006 — the signature of a small
-evaluation set, not of unstable training.
+Per-seed U-Net test F1 ranges **0.71 – 0.87** (`unet_seed_sweep.json`), while its
+validation F1 is near-constant at 0.898 ± 0.006 — the signature of a small
+evaluation set, not of unstable training. The RF's spread is **±0.003**, twenty
+times tighter (`rf_seed_sweep.json`).
 
-**The two models finish level.** On F1 and IoU the gap is smaller than the seed
-spread. What separates them is an *operating point*, not accuracy: the U-Net
-trades precision for recall (0.91 recall vs 0.82, bought at 0.71 precision vs
-0.81), and it does so in every run.
+**The two models finish level, and the RF is far more stable.** On F1 and IoU the
+gap is smaller than the U-Net's seed spread. What separates them is an
+*operating point*, not accuracy: the U-Net trades precision for recall (0.91 vs
+0.82, bought at 0.71 vs 0.81), and it does so in every run.
+
+### Statistical comparison (patch-level bootstrap)
+
+```bash
+python -m src.validation.bootstrap         # writes bootstrap_ci.json
+```
+
+Resamples the 359 test **patches** with replacement (2,000 times) and recomputes
+the metrics. Patches, not pixels: debris occurs in contiguous slicks, so pixels
+within a patch are not independent and resampling them would return an interval
+several times too narrow. Both models are scored on the same resampled sets, so
+the difference is *paired*.
+
+| Metric | Random Forest | U-Net (promoted seed) | Δ (U-Net − RF), 95% CI | P(U-Net better) |
+|---|---|---|---|---|
+| Precision | 0.805 [0.717, 0.873] | 0.713 [0.600, 0.819] | **[−0.162, −0.015]** | 0.9% |
+| Recall | 0.824 [0.755, 0.878] | 0.895 [0.845, 0.940] | **[+0.016, +0.138]** | 99.5% |
+| F1 | 0.815 [0.749, 0.863] | 0.794 [0.714, 0.862] | [−0.076, +0.036] | 26.8% |
+| IoU | 0.687 [0.598, 0.760] | 0.658 [0.555, 0.757] | [−0.102, +0.052] | 26.8% |
+
+Reading: the precision and recall intervals **exclude zero** in opposite
+directions — those differences are real. The F1 and IoU intervals **include
+zero**, so no overall accuracy difference is detectable on this benchmark. The
+operating-point story is not a hedge; it is the only difference the data
+supports.
+
+Note the two uncertainties are distinct and neither subsumes the other. The
+bootstrap measures how precisely *one trained model's* score is known on *this*
+test set; the seed sweeps measure how much the score moves when you retrain. For
+the U-Net the second is the larger of the two (±0.060 vs a ±0.074-wide half-CI);
+for the RF it is negligible.
 
 The comparison is in fact slightly worse than a tie for the U-Net. Sweeping the
 promoted seed's decision threshold traces its full precision-recall frontier,
