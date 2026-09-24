@@ -263,13 +263,21 @@ winner; only the feature set varies.
 | RF — bands only | 7 | 0.77 | 0.63 |
 | RF — indices only (NDVI, FDI) | 2 | 0.02 | 0.01 |
 | RF — bands + indices | 9 | 0.81 | 0.69 |
-| U-Net — bands + spatial context | 6 (+conv) | 0.88 | 0.79 |
+| U-Net — bands + spatial context (5 seeds) | 6 (+conv) | 0.80 ± 0.06 | 0.67 ± 0.08 |
 
 Reading: the raw bands carry most of the signal (0.77 F1 alone); NDVI+FDI add a
-modest but real **+0.04 F1** on top; the indices *alone* are near-useless (they
+modest but real **+0.045 F1** on top; the indices *alone* are near-useless (they
 discard absolute brightness and only sharpen a decision made from the bands).
-Adding **spatial context** (RF → U-Net) contributes more than the indices:
-**+0.07 F1 and +0.10 IoU**.
+Adding **spatial context** (RF → U-Net) contributes **nothing measurable** once
+the seed spread is accounted for — the U-Net mean sits marginally *below* the RF
+on both metrics, well inside ±1 SD.
+
+Note that a single-run U-Net figure would have reversed that conclusion: the
+promoted-seed value of 0.88 F1 previously reported here is one draw from a
+0.71–0.87 spread, selected by validation F1. The `U-Net` row above is the
+five-seed mean; the row written by `ablation_features.py` into
+`test/data/outputs/ablation_features.json` is still the single promoted
+checkpoint, and should be read as one seed, not as the result.
 
 ## References
 
