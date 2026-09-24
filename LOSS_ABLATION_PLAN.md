@@ -3,6 +3,12 @@
 **Target audience: a fresh Claude Code CLI session with no prior conversation
 context.** Everything needed is in this file. Read it end to end before starting.
 
+> **Status as of 2026-09-24.** R3 is **resolved as unnecessary** (the premise was
+> false — see the ticket) and R4 is **done** (README now carries the five-seed
+> mean±std; thesis document updated to match). R1, R2 and R5 remain open, and
+> Sprints A, P and C are untouched. Numbers below that predate this date are
+> superseded by the table in §1.
+
 **Prerequisite this session must have that the authoring session did not:** the
 `marine-debris` conda env and a GPU. Nothing below can be validated without them.
 
@@ -20,9 +26,19 @@ benchmark, comparing three models.
 
 | Model | Status |
 |---|---|
-| 1. Random Forest | done — test F1 0.81 / IoU 0.69 |
-| 2. U-Net (from scratch, 6-band) | done — test F1 0.88 / IoU 0.79 |
+| 1. Random Forest | done — test F1 0.81 / IoU 0.69 (single seeded fit) |
+| 2. U-Net (from scratch, 6-band) | done — test F1 **0.80 ± 0.06** / IoU **0.67 ± 0.08** over 5 seeds (per-seed F1 0.71–0.87) |
 | 3. Custom CNN | **does not exist** — `src/models/custom_cnn.py` is 14 lines of docstring |
+
+**The two models finish level.** The gap on F1 and IoU is smaller than the seed
+spread; what separates them is an operating point (U-Net recall 0.91 ± 0.02 vs
+0.82, bought at precision 0.71 ± 0.09 vs 0.81), not accuracy. Stronger still: the
+RF operating point sits *above* the promoted U-Net's entire precision-recall
+frontier — at the RF's own recall (0.824) the U-Net reaches 0.777 precision vs
+0.805, and at its oracle-best threshold it reaches F1 0.806 vs 0.815 (AP 0.8149).
+There is no threshold at which that U-Net dominates the baseline. This reframes
+the whole plan: the ablation below is no longer a performance chase but the
+candidate *explanation* for the U-Net's precision instability (F-A).
 
 The U-Net's objective is masked `BCEWithLogitsLoss(pos_weight=min(raw, 20))` plus
 a soft-Dice term, summed unweighted (`src/training/train_unet.py:51-77`).
