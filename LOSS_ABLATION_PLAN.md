@@ -192,23 +192,46 @@ scores, not generalisation estimates (F-D). Contextualise `accuracy: 0.9990`
 against the all-negative baseline of 0.9950, or drop the accuracy row.
 **Validation:** regenerate the val PDF; the caveat is present.
 
-### R3 — align the evaluation precision path *(referenced from `threshold.py`)*
-**Files:** `src/validation/evaluate_unet.py:51-54`, `src/validation/threshold.py`
-`use_amp = device.startswith("cuda")` autocasts on any CUDA device, so evaluation
-runs fp16 while training defaults to fp32 (`train_unet.py:182-185` — AMP is
-opt-in because GradScaler is unstable with the large `pos_weight`). fp16 quantises
-the sigmoid near saturation, which is exactly what a 0.01 threshold grid resolves.
-`threshold.py` already runs fp32; make `evaluate_unet` match.
-**This will change the reported test numbers slightly.** Re-run evaluation and
-report the corrected figures — do not mix pre- and post-fix numbers in one table.
-**Validation:** run `evaluate_unet` before and after; record both, keep the fp32 set.
+### ~~R3 — align the evaluation precision path~~ — RESOLVED 2026-09-24, NO CHANGE NEEDED
 
-### R4 — replace README single-point results with the sweep's mean±std
-**Files:** `README.md:194-204`, run `python -m src.training.sweep_unet`
-F-E: the instrument exists. Record which seed set produced the table, the commit,
-and the threshold used.
-**Validation:** `test/data/outputs/unet_seed_sweep.json` exists and the README
-table matches it.
+**Do not do this ticket. Its premise was tested and is false.**
+
+The concern was that `use_amp = device.startswith("cuda")`
+(`evaluate_unet.py:52`) autocasts on any CUDA device, so evaluation would run
+fp16 while training defaults to fp32, and that fp16 quantisation near sigmoid
+saturation would move the reported numbers.
+
+Measured directly on `test/data/model/unet_baseline.pt`, running the test split
+twice under each path: fp16 autocast and fp32 produce **byte-identical metrics**
+— P 0.7134, R 0.8950, F1 0.7939, IoU 0.6583, TP 341, FP 137 in all four runs.
+Evaluation is bit-stable and reproducible; a threshold chosen in `threshold.py`
+*will* reproduce in `evaluate_unet`. No re-run of any reported figure is needed
+on these grounds.
+
+The docstring in `threshold.py:collect_flat_probabilities` still warns about this
+and still points at R3. That warning is now wrong and should be corrected when
+that file is next touched (it is not otherwise load-bearing).
+
+### ~~R4 — replace README single-point results with the sweep's mean±std~~ — DONE 2026-09-24
+
+Record, as the ticket asked:
+
+- **Seed set:** 0–4, `python -m src.training.sweep_unet` defaults, results in
+  `test/data/outputs/unet_seed_sweep.json`.
+- **Promoted seed:** 4, selected on max validation F1 (0.9081); its test F1 is
+  0.7939 — close to the five-seed mean, not the best of the five.
+- **Threshold:** 0.5 throughout (kept for MARIDA comparability; P4 remains open).
+- **Commits:** `97e5d55` (results table), `dcda58e` (RQ2 conclusion),
+  `3377bf6` (module listing).
+
+The thesis document `../Marine_Debris_Detection_Thesis.docx` was updated in the
+same pass, so README and thesis now carry identical numbers. Its §8.2 also
+records the precision-recall frontier result noted in §1 above.
+
+One further defect found and fixed while doing this: the operating point plotted
+in `fig_pr_curve.png` was read from a superseded metrics JSON and sat *off* its
+own curve. `src/validation/figures.py` must run **after** `evaluate_unet`, never
+before. Figures regenerated.
 
 ### R5 — synthetic loss unit tests *(no test suite exists yet)*
 **File:** new `tests/test_losses.py`
