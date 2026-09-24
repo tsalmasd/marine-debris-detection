@@ -39,7 +39,8 @@ marine-plastic-detection/
 │   ├── training/
 │   │   ├── train.py             # RF training entrypoint
 │   │   ├── train_unet.py        # U-Net training entrypoint
-│   │   └── sweep_unet.py        # Multi-seed U-Net sweep (mean±std reporting)
+│   │   ├── sweep_unet.py        # Multi-seed U-Net sweep (mean±std reporting)
+│   │   └── sweep_rf.py          # Multi-seed RF sweep (error bars for the baseline)
 │   ├── validation/
 │   │   ├── metrics.py           # Precision, Recall, F1, IoU, MCC, balanced acc + confusion matrix
 │   │   ├── report.py            # One-page PDF evaluation report (matplotlib)
@@ -47,6 +48,7 @@ marine-plastic-detection/
 │   │   ├── evaluate_unet.py     # U-Net test-set evaluation entrypoint
 │   │   ├── ablation_features.py # RQ2 feature ablation (bands vs indices vs spatial)
 │   │   ├── threshold.py         # Decision-threshold sweep on val (selection TODO)
+│   │   ├── bootstrap.py         # Patch-level bootstrap CIs + paired model contrast
 │   │   └── figures.py           # Thesis figures — run AFTER evaluate_unet
 │   └── inference/
 │       ├── export_predictions.py       # Export RF GeoTIFFs for QGIS
