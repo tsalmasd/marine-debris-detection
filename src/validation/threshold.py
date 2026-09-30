@@ -77,7 +77,7 @@ def collect_flat_probabilities(
     That was measured and is not the case: running the test split under fp16
     autocast and under fp32 produces identical metrics (P 0.7134, R 0.8950,
     TP 341, FP 137 in both). A threshold selected here reproduces exactly in
-    ``evaluate_unet``. See ROADMAP.md, task R3.
+    ``evaluate_unet``. See NEXT_STEPS.md, task R3.
 
     Returns:
         (y_true, y_prob) as 1-D arrays over labelled (non-nodata) pixels only.
@@ -144,7 +144,7 @@ def select_threshold(
     judgment about the relative cost of a missed debris pixel versus a false
     alarm. It belongs in the thesis as an argued choice rather than as an
     implicit 0.5, so the criterion is left to be decided and written up rather
-    than defaulted here (ROADMAP.md, task P4).
+    than defaulted here (NEXT_STEPS.md, task P4).
 
     Until then, ``--split val`` prints the full sweep and marks the max-IoU row
     for reference, and ``evaluate_unet`` keeps its threshold at 0.5.

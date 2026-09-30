@@ -2,7 +2,7 @@
 
 Master's thesis project: validation and comparison of three models for detecting marine plastic debris in Sentinel-2 imagery using the [MARIDA Benchmark Dataset](https://github.com/marine-debris/marine-debris.github.io).
 
-> **Remaining work is planned in [`ROADMAP.md`](ROADMAP.md)** — reporting
+> **Remaining work is planned in [`NEXT_STEPS.md`](NEXT_STEPS.md)** — reporting
 > repairs, a loss-objective ablation, and Model 3. Read it before changing the
 > U-Net objective or the reported metrics; it records the derivations behind
 > those decisions.
