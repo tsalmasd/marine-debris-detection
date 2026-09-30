@@ -68,13 +68,16 @@ def collect_flat_probabilities(
     masking semantics, but it stops short of thresholding so one forward pass can
     be reused across an entire threshold sweep.
 
-    ``use_amp`` defaults to **False**, deliberately. Training runs fp32 by default
+    ``use_amp`` defaults to **False**, matching the training default
     (``train_unet.py`` ``--amp`` is opt-in because mixed precision with the large
-    ``pos_weight`` is numerically unstable), and fp16 quantises the sigmoid output
-    near saturation -- exactly the quantity a 0.01-spaced grid is trying to
-    resolve. ``evaluate_unet.collect_flat_predictions`` currently autocasts on any
-    CUDA device, so a threshold chosen here will not exactly reproduce there until
-    that path is aligned. See LOSS_ABLATION_PLAN.md, task R3.
+    ``pos_weight`` is numerically unstable).
+
+    ``evaluate_unet.collect_flat_predictions`` autocasts on any CUDA device, which
+    raised the concern that a threshold chosen here would not reproduce there.
+    That was measured and is not the case: running the test split under fp16
+    autocast and under fp32 produces identical metrics (P 0.7134, R 0.8950,
+    TP 341, FP 137 in both). A threshold selected here reproduces exactly in
+    ``evaluate_unet``. See ROADMAP.md, task R3.
 
     Returns:
         (y_true, y_prob) as 1-D arrays over labelled (non-nodata) pixels only.
@@ -136,12 +139,15 @@ def select_threshold(
     """
     Choose the operating threshold from a validation-split sweep.
 
-    TODO(nick): implement the selection criterion.
+    **Deliberately unimplemented.** :func:`sweep_thresholds` already scores every
+    candidate; what remains is deciding which row wins, and that is a domain
+    judgment about the relative cost of a missed debris pixel versus a false
+    alarm. It belongs in the thesis as an argued choice rather than as an
+    implicit 0.5, so the criterion is left to be decided and written up rather
+    than defaulted here (ROADMAP.md, task P4).
 
-    :func:`sweep_thresholds` scores every candidate; all that is left is deciding
-    which row wins. That is a domain judgment about the relative cost of a missed
-    debris pixel versus a false alarm, and it belongs in the thesis as an argued
-    choice rather than an implicit 0.5.
+    Until then, ``--split val`` prints the full sweep and marks the max-IoU row
+    for reference, and ``evaluate_unet`` keeps its threshold at 0.5.
 
     Two genuinely distinct criteria:
 
