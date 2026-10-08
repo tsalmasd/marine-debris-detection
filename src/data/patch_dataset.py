@@ -168,3 +168,70 @@ class MaridaSegmentationDataset(Dataset):
         if n_pos == 0:
             return 1.0
         return n_neg / n_pos
+
+
+class MaridaPatchClassificationDataset(MaridaSegmentationDataset):
+    """
+    Patch-level dataset for the custom CNN classifier.
+
+    Reuses everything from :class:`MaridaSegmentationDataset` — patch
+    resolution, caching, normalization, NaN sanitation, missing-patch skipping
+    — but collapses the per-pixel mask into one scalar label per patch:
+
+        image : (C, H, W) float32, per-channel normalized Sentinel-2 bands
+        label : () float32, 1.0 if the patch contains >= 1 debris pixel else 0.0
+
+    What the negative class actually means
+    -------------------------------------
+    The label is ``(mask == 1).any()``, which reads as "is any pixel in this
+    patch *annotated* as debris". It is not "this patch contains no debris":
+    MARIDA annotates a median of 0.10% of pixels per patch (as little as a
+    single pixel in the thinnest case), so a 0 means *no debris among the
+    labelled pixels*, with the other 99.9% unchecked. Every negative therefore
+    carries some chance of unannotated debris, which puts a ceiling on
+    achievable precision that no model can see. State this as a limitation
+    rather than treating patch labels as ground truth about whole patches.
+
+    No patch in any split is fully unlabelled, so none has to be dropped.
+    """
+
+    def __getitem__(self, idx: int):
+        img, label = self._cache[idx] if self.cache else self._load_raw(idx)
+
+        if self.mean is not None:
+            img = (img - self.mean) / self.std
+        img = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
+
+        has_debris = np.float32((label == DEBRIS_CLASS).any())
+
+        return (
+            torch.from_numpy(np.ascontiguousarray(img)),  # (C, H, W)
+            torch.tensor(has_debris),                     # scalar
+        )
+
+    def patch_labels(self) -> np.ndarray:
+        """
+        Every patch label as a (N,) float32 array, without a forward pass.
+
+        Used for the positive-class weight, for stratified reporting and to
+        line predictions up against truth in evaluation.
+        """
+        out = np.zeros(len(self), dtype=np.float32)
+        for i in range(len(self)):
+            _, label = self._cache[i] if self.cache else self._load_raw(i)
+            out[i] = float((label == DEBRIS_CLASS).any())
+        return out
+
+    def compute_pos_weight(self) -> float:
+        """
+        BCE ``pos_weight`` = (# clean patches) / (# debris patches) for this split.
+
+        Counted in patches, not pixels — this deliberately shadows the parent's
+        pixel-level version, which would return the 197:1 figure and is the
+        wrong quantity for a patch classifier. Measures 2.65 on the train split.
+        """
+        labels = self.patch_labels()
+        n_pos = int(labels.sum())
+        if n_pos == 0:
+            return 1.0
+        return (len(labels) - n_pos) / n_pos
