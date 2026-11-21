@@ -1,8 +1,25 @@
 """
-Custom CNN patch classifier for marine debris detection.
+Custom CNN for marine debris detection — the third model of the thesis.
 
-The third model of the thesis. Unlike the Random Forest (per-pixel) and the
-U-Net (per-pixel dense segmentation), this one answers a *patch-level* question:
+Two variants live here, for two different formulations of "model 3":
+
+:class:`WindowCNN` (**primary**, REVISED_PLAN.md step 3)
+    Classifies the **centre pixel** of a small W x W window. Output is therefore
+    per-pixel and scored on exactly the same ``valid`` pixels as the Random
+    Forest and the U-Net, which is what makes a three-model table meaningful.
+    With RF = 1 px of context and U-Net = 256 px, W = 16 and W = 32 fill in a
+    **context curve**: debris F1 against receptive field.
+
+:class:`CustomCNN` (superseded, kept for reproducibility)
+    Classifies a whole 256x256 patch: "does this patch contain any debris?".
+    This was built first and its 5-seed result is recorded in
+    ``test/data/outputs/custom_cnn_seed_sweep.json`` (test F1 0.677 +/- 0.075).
+    It is superseded because a patch-level label cannot be compared against
+    per-pixel RF / U-Net metrics without first agreeing a shared target — the
+    blocker that the window formulation removes. Left importable so the pushed
+    checkpoint still loads; not part of the final comparison.
+
+The patch-level notes further down apply only to :class:`CustomCNN`.
 
     "does this 256x256 Sentinel-2 patch contain any marine debris?"
 
@@ -205,11 +222,120 @@ def build_custom_cnn(
     )
 
 
+class WindowCNN(nn.Module):
+    """
+    Centre-pixel classifier over a small W x W window (REVISED_PLAN.md step 3).
+
+    The label is the class of the window's **centre pixel**, not of the window
+    as a whole, so the output is per-pixel and lands on the same ``valid`` mask
+    the Random Forest and the U-Net are scored on.
+
+    Args:
+        in_channels: number of input bands (7 for ``RF_BANDS``, 9 with indices).
+        window_size: W, the side of the input window. Must leave a non-empty
+            feature map after the two 2x pools, i.e. W >= 4.
+        n_classes: output logits; 1 (default) for a single debris logit with
+            BCEWithLogitsLoss.
+        base_channels: width of the first stage; stages are x1, x2, x4
+            (default 32 -> 64 -> 128).
+        hidden_dim: width of the dense layer before the output.
+        dropout: dropout on the hidden dense activations.
+
+    Forward input:  (N, in_channels, W, W)
+    Forward output: (N, n_classes) raw logits — no Softmax, see the module docstring.
+
+    **Flatten, not global pooling.** The head flattens the final feature map
+    rather than pooling it. Global pooling is translation-invariant, which is
+    exactly wrong when the label belongs to one specific pixel: a debris blob in
+    the window's corner would drive the prediction just as hard as one at the
+    centre. Flatten keeps position, so the network can learn that the centre
+    matters. (This is why :class:`CustomCNN`, whose label *is* "anywhere in the
+    patch", uses global max pooling instead — the two heads encode two different
+    questions.) W is fixed per model, so the flatten dimension is well defined;
+    ``REVISED_PLAN.md`` permits either and names Flatten for fixed W.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        window_size: int,
+        n_classes: int = 1,
+        base_channels: int = 32,
+        hidden_dim: int = 128,
+        dropout: float = 0.3,
+    ):
+        super().__init__()
+        if window_size < 4:
+            raise ValueError(
+                f"window_size must be >= 4 to survive two 2x pools, got {window_size}"
+            )
+        self.in_channels = in_channels
+        self.window_size = window_size
+        self.n_classes = n_classes
+        self.base_channels = base_channels
+        self.hidden_dim = hidden_dim
+        self.dropout_p = dropout
+
+        c = base_channels
+        self.features = nn.Sequential(
+            ConvBlock(in_channels, c, pool=True),    # -> (c,  W/2, W/2)
+            ConvBlock(c, c * 2, pool=True),          # -> (2c, W/4, W/4)
+            ConvBlock(c * 2, c * 4, pool=False),     # -> (4c, W/4, W/4)
+        )
+        # Two floor-dividing pools; computed rather than assumed so odd W works.
+        side = window_size // 2 // 2
+        self.feature_dim = c * 4 * side * side
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.feature_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, n_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.features(x))
+
+    @torch.no_grad()
+    def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
+        """Debris probability for each window's centre pixel, shape (N,)."""
+        self.eval()
+        logits = self.forward(x)
+        if self.n_classes == 1:
+            return torch.sigmoid(logits.squeeze(1))
+        return torch.softmax(logits, dim=1)[:, 1]
+
+    @torch.no_grad()
+    def predict(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+        """Hard centre-pixel label, shape (N,)."""
+        return (self.predict_proba(x) >= threshold).long()
+
+
+def build_window_cnn(
+    in_channels: int,
+    window_size: int,
+    n_classes: int = 1,
+    base_channels: int = 32,
+    hidden_dim: int = 128,
+    dropout: float = 0.3,
+) -> WindowCNN:
+    """Factory for a :class:`WindowCNN`."""
+    return WindowCNN(
+        in_channels=in_channels,
+        window_size=window_size,
+        n_classes=n_classes,
+        base_channels=base_channels,
+        hidden_dim=hidden_dim,
+        dropout=dropout,
+    )
+
+
 def save_checkpoint(
-    model: CustomCNN,
+    model,
     path: str,
     mean,
     std,
+    bands: list[str] | None = None,
     extra: dict | None = None,
 ) -> None:
     """
@@ -220,21 +346,44 @@ def save_checkpoint(
     per-channel normalization stats so inputs are scaled at inference exactly
     as during training. ``extra`` records provenance such as the best epoch,
     the selection metric and the chosen threshold.
+
+    ``bands`` is stored so evaluation and export never have to *assume* a band
+    count — REVISED_PLAN.md requires this, because the band set is now a
+    variable of the experiment rather than a constant.
+
+    Handles both :class:`WindowCNN` and :class:`CustomCNN`; ``config["arch"]``
+    records which, so :func:`load_checkpoint` rebuilds the right one.
     """
     import numpy as np
 
-    payload = {
-        "state_dict": model.state_dict(),
-        "config": {
+    if isinstance(model, WindowCNN):
+        config = {
+            "arch": "window",
+            "in_channels": model.in_channels,
+            "window_size": model.window_size,
+            "n_classes": model.n_classes,
+            "base_channels": model.base_channels,
+            "hidden_dim": model.hidden_dim,
+            "dropout": model.dropout_p,
+        }
+    else:
+        config = {
+            "arch": "patch",
             "in_channels": model.in_channels,
             "n_classes": model.n_classes,
             "base_channels": model.base_channels,
             "hidden_dim": model.hidden_dim,
             "dropout": model.dropout_p,
-        },
+        }
+
+    payload = {
+        "state_dict": model.state_dict(),
+        "config": config,
         "norm_mean": np.asarray(mean, dtype="float32"),
         "norm_std": np.asarray(std, dtype="float32"),
     }
+    if bands is not None:
+        payload["bands"] = list(bands)
     if extra:
         payload["extra"] = extra
     torch.save(payload, path)
@@ -244,21 +393,48 @@ def load_checkpoint(path: str, device: str = "cpu"):
     """
     Rebuild a classifier from a checkpoint written by :func:`save_checkpoint`.
 
-    Returns ``(model_in_eval_mode, mean, std)`` where mean/std are the (C,)
-    normalization arrays to apply to inputs before a forward pass.
+    Returns ``(model_in_eval_mode, mean, std)``, where mean/std are the (C,)
+    normalization arrays to apply to inputs before a forward pass. Read the
+    band list with :func:`load_checkpoint_bands` when the caller needs to
+    rebuild the dataset too.
+
+    Checkpoints written before the window variant existed carry no ``arch``
+    key; those are patch classifiers.
     """
     ckpt = torch.load(path, map_location=device, weights_only=False)
     cfg = ckpt["config"]
-    model = build_custom_cnn(
-        in_channels=cfg["in_channels"],
-        n_classes=cfg["n_classes"],
-        base_channels=cfg["base_channels"],
-        hidden_dim=cfg["hidden_dim"],
-        dropout=cfg["dropout"],
-    )
+    if cfg.get("arch", "patch") == "window":
+        model = build_window_cnn(
+            in_channels=cfg["in_channels"],
+            window_size=cfg["window_size"],
+            n_classes=cfg["n_classes"],
+            base_channels=cfg["base_channels"],
+            hidden_dim=cfg["hidden_dim"],
+            dropout=cfg["dropout"],
+        )
+    else:
+        model = build_custom_cnn(
+            in_channels=cfg["in_channels"],
+            n_classes=cfg["n_classes"],
+            base_channels=cfg["base_channels"],
+            hidden_dim=cfg["hidden_dim"],
+            dropout=cfg["dropout"],
+        )
     model.load_state_dict(ckpt["state_dict"])
     model.to(device).eval()
     return model, ckpt["norm_mean"], ckpt["norm_std"]
+
+
+def load_checkpoint_bands(path: str) -> list[str] | None:
+    """
+    The band list a checkpoint was trained on, or ``None`` if it predates the key.
+
+    ``None`` means "assume the historical default" — the caller decides, rather
+    than this module guessing.
+    """
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    bands = ckpt.get("bands")
+    return list(bands) if bands else None
 
 
 if __name__ == "__main__":
@@ -287,4 +463,17 @@ if __name__ == "__main__":
     assert mc(dummy).shape == (2, 2)
     assert mc.predict_proba(dummy).shape == (2, 2)
     assert mc.predict(dummy).shape == (2,)
+
+    # WindowCNN: the primary variant, one logit per window centre pixel.
+    print()
+    for W in (16, 32):
+        wnet = build_window_cnn(in_channels=7, window_size=W)
+        wp = sum(p.numel() for p in wnet.parameters())
+        wx = torch.randn(4, 7, W, W)
+        wout = wnet(wx)
+        print(f"WindowCNN W={W:2d}: params {wp:>9,} | feature_dim {wnet.feature_dim:>5} "
+              f"| {tuple(wx.shape)} -> {tuple(wout.shape)}")
+        assert wout.shape == (4, 1)
+        assert wnet.predict_proba(wx).shape == (4,)
+        assert wnet.predict(wx).shape == (4,)
     print("OK")
