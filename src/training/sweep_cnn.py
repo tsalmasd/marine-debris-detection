@@ -48,6 +48,32 @@ METRIC_KEYS = ["precision", "recall", "f1", "iou", "mcc", "balanced_accuracy",
                "average_precision"]
 
 
+def _tail_gain(history, patience):
+    """Validation-F1 gain over the last ``patience`` epochs, in units of noise.
+
+    A best epoch near the budget ceiling is ambiguous. The run may genuinely
+    still be learning -- or val F1 may have plateaued, in which case the argmax
+    of a noisy flat series simply lands late by chance. Comparing the mean of
+    the final ``patience`` epochs against the ``patience`` before it, scaled by
+    the noise across both, separates the two: a real climb clears its own noise,
+    a plateau does not. Without this test the cap warning fires forever on a
+    converged model, and each "re-run with more epochs" only buys a luckier
+    argmax.
+
+    Returns (gain / noise, raw gain); the ratio is NaN when the run is too short
+    to judge, which is treated as "still improving" (the cautious reading).
+    """
+    f1 = np.array([h[2] for h in history], dtype=float)
+    if len(f1) < 2 * patience:
+        return float("nan"), float("nan")
+    late, early = f1[-patience:], f1[-2 * patience:-patience]
+    gain = float(late.mean() - early.mean())
+    noise = float(f1[-2 * patience:].std())
+    if noise == 0.0:
+        return (float("inf") if gain > 0 else 0.0), gain
+    return gain / noise, gain
+
+
 def main():
     parser = add_common_args(argparse.ArgumentParser(description=__doc__))
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
@@ -130,17 +156,29 @@ def main():
           f"-> promoted to {tag}.pt")
 
     # Early stopping only fires after `patience` epochs with no improvement, so
-    # any seed peaking after (epochs - patience) was cut off by the budget
-    # rather than by convergence -- it never had the grace period to stop
-    # itself. Testing `best_epoch >= epochs` alone misses those: it is the
-    # exact trap the first patch-classifier sweep fell into.
+    # any seed peaking after (epochs - patience) never had the grace period to
+    # stop itself: the budget ended it. Testing `best_epoch >= epochs` alone
+    # misses those -- the exact trap the first patch-classifier sweep fell into.
+    #
+    # But a late peak is not proof the model was still learning. On a plateau
+    # the argmax of a noisy series drifts late on its own, so `_tail_gain`
+    # decides which of the two it was; only a real climb warrants more epochs.
     converged_before = args.epochs - args.patience
-    at_cap = [r["seed"] for r in runs if r["best_epoch"] > converged_before]
+    budget_limited = [r for r in runs if r["best_epoch"] > converged_before]
+    at_cap, plateaued = [], []
+    for r in budget_limited:
+        ratio, _ = _tail_gain(r["history"], args.patience)
+        (at_cap if (np.isnan(ratio) or ratio > 1.0) else plateaued).append(r["seed"])
     if at_cap:
-        print(f"WARNING: seeds {at_cap} peaked after epoch {converged_before} "
-              f"of {args.epochs}, so early stopping (patience {args.patience}) "
-              f"never fired: the budget stopped them, not convergence. "
+        print(f"WARNING: seeds {at_cap} peaked after epoch {converged_before} of "
+              f"{args.epochs} and validation F1 was still climbing faster than its "
+              f"own noise, so the budget stopped them, not convergence. "
               f"Re-run with more epochs before reporting.")
+    if plateaued:
+        print(f"NOTE: seeds {plateaued} peaked after epoch {converged_before} of "
+              f"{args.epochs}, but validation F1 had plateaued (tail gain within "
+              f"noise). Their late peak is the argmax of a flat noisy series, not "
+              f"continued learning; more epochs would only buy a luckier argmax.")
 
     summary = {
         "seeds": args.seeds,
@@ -162,11 +200,14 @@ def main():
         "trivial_all_positive_f1": 2 * prevalence / (1 + prevalence),
         "random_ranking_ap": prevalence,
         "seeds_at_epoch_cap": at_cap,
+        "seeds_plateaued_late": plateaued,
         "converged_before_epoch": converged_before,
         "test_mean_std": agg,
         "per_seed": [
             {"seed": r["seed"], "val_f1": r["val_f1"], "val_ap": r["val_ap"],
-             "best_epoch": r["best_epoch"], "test": r["test"]}
+             "best_epoch": r["best_epoch"],
+             "tail_gain_over_noise": _tail_gain(r["history"], args.patience)[0],
+             "test": r["test"]}
             for r in runs
         ],
     }
