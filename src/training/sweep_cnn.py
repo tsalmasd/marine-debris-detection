@@ -129,12 +129,18 @@ def main():
     print(f"\nSelected model: seed {best['seed']} (best val F1 {best['val_f1']:.4f}) "
           f"-> promoted to {tag}.pt")
 
-    # A best epoch at the cap means the budget, not convergence, stopped it —
-    # the exact trap the first patch-classifier sweep fell into.
-    at_cap = [r["seed"] for r in runs if r["best_epoch"] >= args.epochs]
+    # Early stopping only fires after `patience` epochs with no improvement, so
+    # any seed peaking after (epochs - patience) was cut off by the budget
+    # rather than by convergence -- it never had the grace period to stop
+    # itself. Testing `best_epoch >= epochs` alone misses those: it is the
+    # exact trap the first patch-classifier sweep fell into.
+    converged_before = args.epochs - args.patience
+    at_cap = [r["seed"] for r in runs if r["best_epoch"] > converged_before]
     if at_cap:
-        print(f"WARNING: seeds {at_cap} peaked at the epoch cap ({args.epochs}); "
-              f"they had not converged. Re-run with more epochs before reporting.")
+        print(f"WARNING: seeds {at_cap} peaked after epoch {converged_before} "
+              f"of {args.epochs}, so early stopping (patience {args.patience}) "
+              f"never fired: the budget stopped them, not convergence. "
+              f"Re-run with more epochs before reporting.")
 
     summary = {
         "seeds": args.seeds,
@@ -156,6 +162,7 @@ def main():
         "trivial_all_positive_f1": 2 * prevalence / (1 + prevalence),
         "random_ranking_ap": prevalence,
         "seeds_at_epoch_cap": at_cap,
+        "converged_before_epoch": converged_before,
         "test_mean_std": agg,
         "per_seed": [
             {"seed": r["seed"], "val_f1": r["val_f1"], "val_ap": r["val_ap"],
