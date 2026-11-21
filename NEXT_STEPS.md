@@ -26,9 +26,18 @@ conda activate marine-debris
 |---|---|
 | 1. Random Forest | done — test F1 **0.818 ± 0.003**, IoU **0.692 ± 0.004** over 5 seeds |
 | 2. U-Net (from scratch, 6-band) | done — test F1 **0.798 ± 0.060**, IoU **0.668 ± 0.083** over 5 seeds (per-seed F1 0.71–0.87) |
-| 3. Custom CNN | not implemented — `src/models/custom_cnn.py` is still a docstring |
+| 3. Custom CNN (W x W window, centre-pixel) | done — CNN-16 test F1 **0.806 ± 0.022**, IoU **0.675 ± 0.031**; CNN-32 test F1 **0.828 ± 0.009**, IoU **0.707 ± 0.014**, over 5 seeds each (see `REVISED_PLAN.md` step 3) |
 
-**The two finished models are level.** The gap in F1 and IoU is smaller than the
+Model 3 was re-scoped from a whole-patch classifier to a window centre-pixel
+classifier so that all three models predict per-pixel and are scored on the same
+labelled pixels; the superseded patch classifier remains importable as
+`CustomCNN`. With 1-, 16-, 32- and 256-pixel receptive fields now measured, the
+context curve is **flat out to 32 px** — CNN-32 leads the RF by 0.010 F1 against
+a ±0.009 seed spread, which this test split cannot resolve. Still open: the
+paired bootstrap does not yet cover the CNN, and the U-Net row is still the
+6-band model, so the CNN-vs-U-Net gap remains confounded by B06.
+
+**The two original models are level.** The gap in F1 and IoU is smaller than the
 spread between seeds, so it is not a real difference. What is real is the trade:
 the U-Net finds more debris (recall 0.91 against 0.82) and raises more false
 alarms doing it (precision 0.71 against 0.81).

@@ -2,16 +2,19 @@
 
 Master's thesis project: validation and comparison of three models for detecting marine plastic debris in Sentinel-2 imagery using the [MARIDA Benchmark Dataset](https://github.com/marine-debris/marine-debris.github.io).
 
-> **Remaining work is planned in [`NEXT_STEPS.md`](NEXT_STEPS.md)** — reporting
-> repairs, a loss-objective ablation, and Model 3. Read it before changing the
-> U-Net objective or the reported metrics; it records the derivations behind
-> those decisions.
+> **Remaining work is planned in [`REVISED_PLAN.md`](REVISED_PLAN.md)** (which
+> supersedes the order of work in [`NEXT_STEPS.md`](NEXT_STEPS.md)) — a 7-band
+> U-Net retrain, a loss-objective ablation, and the three-model bootstrap. All
+> three models are now implemented. Read both before changing the U-Net
+> objective or the reported metrics; they record the derivations behind those
+> decisions.
 
 ## Models compared
 
 1. **Random Forest** — traditional machine learning baseline (pixel-wise classification)
 2. **U-Net / ResNet** — standard deep learning model (segmentation or classification)
-3. **Custom CNN** — bespoke architecture for patch classification
+3. **Custom CNN** — bespoke architecture; a W x W window classifier that labels the
+   window's centre pixel, so it is scored on the same pixels as the other two
 
 ## Repository structure
 
@@ -29,23 +32,27 @@ marine-plastic-detection/
 ├── src/
 │   ├── data/
 │   │   ├── dataset_loader.py    # Loads Sentinel-2 patches and labels
-│   │   └── patch_dataset.py     # PyTorch Dataset (dense masks) for U-Net
+│   │   ├── patch_dataset.py     # PyTorch Dataset (dense masks) for U-Net
+│   │   └── window_dataset.py    # PyTorch Dataset (W x W window per labelled pixel) for the CNN
 │   ├── features/
 │   │   └── spectral_indices.py  # NDVI, FDI, NDWI computation
 │   ├── models/
 │   │   ├── random_forest.py     # RF baseline (Model 1)
 │   │   ├── unet.py              # U-Net (Model 2) + checkpoint save/load
-│   │   └── custom_cnn.py        # Custom CNN (Model 3) — placeholder
+│   │   └── custom_cnn.py        # WindowCNN centre-pixel classifier (Model 3) + checkpoint I/O
 │   ├── training/
 │   │   ├── train.py             # RF training entrypoint
 │   │   ├── train_unet.py        # U-Net training entrypoint
 │   │   ├── sweep_unet.py        # Multi-seed U-Net sweep (mean±std reporting)
-│   │   └── sweep_rf.py          # Multi-seed RF sweep (error bars for the baseline)
+│   │   ├── sweep_rf.py          # Multi-seed RF sweep (error bars for the baseline)
+│   │   ├── train_cnn.py         # Window CNN training entrypoint
+│   │   └── sweep_cnn.py         # Multi-seed window CNN sweep (one per window size)
 │   ├── validation/
 │   │   ├── metrics.py           # Precision, Recall, F1, IoU, MCC, balanced acc + confusion matrix
 │   │   ├── report.py            # One-page PDF evaluation report (matplotlib)
 │   │   ├── evaluate.py          # RF test-set evaluation entrypoint
 │   │   ├── evaluate_unet.py     # U-Net test-set evaluation entrypoint
+│   │   ├── evaluate_cnn.py      # Window CNN test-set evaluation entrypoint
 │   │   ├── ablation_features.py # RQ2 feature ablation (bands vs indices vs spatial)
 │   │   ├── threshold.py         # Decision-threshold sweep on val (selection TODO)
 │   │   ├── bootstrap.py         # Patch-level bootstrap CIs + paired model contrast
@@ -54,6 +61,8 @@ marine-plastic-detection/
 │       ├── export_predictions.py       # Export RF GeoTIFFs for QGIS
 │       └── export_predictions_unet.py  # Export U-Net GeoTIFFs for QGIS
 │
+├── tests/               # pytest suite (window augmentation correctness)
+├── pytest.ini           # testpaths = tests  (NOT test/, the artifacts dir)
 ├── test/data/           # Run artifacts (gitignored): model/, val/, outputs/
 ├── configs/             # YAML / JSON config files (future use)
 ├── environment.yml      # Conda env definition (sole source of truth for deps)
@@ -316,7 +325,9 @@ modest but real **+0.045 F1** on top; the indices *alone* are near-useless (they
 discard absolute brightness and only sharpen a decision made from the bands).
 Adding **spatial context** (RF → U-Net) contributes **nothing measurable** once
 the seed spread is accounted for — the U-Net mean sits marginally *below* the RF
-on both metrics, well inside ±1 SD.
+on both metrics, well inside ±1 SD. The window CNN tests this at two intermediate
+receptive fields (16 and 32 px) rather than only at 256, and reaches the same
+conclusion: see the context curve under *Custom CNN window classifier* below.
 
 Note that a single-run U-Net figure would have reversed that conclusion: the
 promoted-seed value of 0.88 F1 previously reported here is one draw from a
@@ -324,6 +335,84 @@ promoted-seed value of 0.88 F1 previously reported here is one draw from a
 five-seed mean; the row written by `ablation_features.py` into
 `test/data/outputs/ablation_features.json` is still the single promoted
 checkpoint, and should be read as one seed, not as the result.
+
+## Custom CNN window classifier (Model 3)
+
+```bash
+python -m src.training.train_cnn --window 16          # single run
+python -m src.training.sweep_cnn --window 16          # 5 seeds -> cnn_w16_seed_sweep.json
+python -m src.training.sweep_cnn --window 32          # 5 seeds -> cnn_w32_seed_sweep.json
+python -m src.validation.evaluate_cnn --ckpt test/data/model/cnn_w16.pt
+pytest                                                # augmentation correctness tests
+```
+
+The model takes a `W x W` window of 7 bands (`RF_BANDS`, including the red-edge
+B06 the FDI needs) and predicts the class of the window's **centre pixel**. One
+example per annotated pixel; class 0 (nodata) emits none. That is what makes a
+three-model table legitimate: the RF sees 1 pixel, this CNN sees `W`, the U-Net
+sees 256, and **all three are scored on the same labelled test pixels**.
+Varying `W` traces a context curve with the other two models as its endpoints.
+
+Architecture: three conv blocks, then `Flatten -> Linear(128) -> Dropout ->
+Linear(1)` (357k parameters at W=16, 1.14M at W=32). Flatten rather than global
+pooling on purpose — global pooling is translation-invariant, which is exactly
+wrong when the label belongs to one specific position in the window.
+
+Training matches the U-Net's recipe so the comparison is about receptive field
+and not about tuning effort: masked `BCEWithLogitsLoss` with
+`pos_weight = min(raw, 20)` (raw is 220:1 here), gradient clipping at 1.0,
+threshold 0.5, dihedral augmentation (rot90 + flips), early stopping and model
+selection on **validation** F1 alone, 5 seeds, 80 epochs, patience 15.
+
+Results (debris class, test split, 5 seeds, mean ± SD):
+
+| Model | Context | Precision | Recall | F1 | IoU | AP |
+|---|---|---|---|---|---|---|
+| Random Forest | 1 px | 0.808 ± 0.006 | 0.828 ± 0.003 | **0.818 ± 0.003** | 0.692 ± 0.004 | — |
+| CNN-16 | 16 px | 0.720 ± 0.037 | 0.915 ± 0.008 | **0.806 ± 0.022** | 0.675 ± 0.031 | 0.894 ± 0.016 |
+| CNN-32 | 32 px | 0.768 ± 0.014 | 0.899 ± 0.022 | **0.828 ± 0.009** | 0.707 ± 0.014 | 0.890 ± 0.028 |
+| U-Net (6-band) | 256 px | 0.714 ± 0.087 | 0.910 ± 0.021 | **0.798 ± 0.060** | 0.668 ± 0.083 | — |
+
+Reading: **the curve is flat from 1 px to 32 px.** CNN-32 is nominally the
+highest F1 of any model here, but it leads the RF by 0.010 with a seed spread of
+±0.009 — about one SD, which this test split cannot resolve (see the 381-pixel
+caveat above). The honest statement is that 1-, 16- and 32-pixel context all
+finish level, and the 256-pixel U-Net is nominally lowest with six times the
+spread. The paired patch-level bootstrap is what would turn "level" into an
+interval, and it does not yet cover the CNN.
+
+Both CNNs sit at high recall against lower precision, which is the
+`pos_weight=20` operating point, not an accuracy result. Their threshold-free
+**average precision of ~0.89** is the strongest ranking of any model measured so
+far, against a random-ranking floor of 0.00196.
+
+Two confounds to state plainly. The U-Net row is the **6-band** model without
+B06, so the CNN-vs-U-Net gap mixes architecture with band availability until
+that is retrained (`NEXT_STEPS.md`). And runs are not bit-reproducible:
+`cudnn.benchmark` is on and no deterministic-algorithm flag is set, so a seed
+fixes the data order and initialisation but not the kernels. Re-running W=32
+seed 0 at a larger epoch budget gave val F1 0.9099 against 0.9107 — the same
+plateau, a different trajectory.
+
+### Epoch budget: a plateau is not convergence failure
+
+`sweep_cnn.py` warns when a seed's best epoch lands within `patience` of the cap,
+because early stopping never got the chance to fire and the budget, not
+convergence, ended the run. Raising the cap from 40 to 80 epochs was worth
++0.049 F1 at W=16 and +0.075 at W=32, and cut W=32's seed spread from ±0.063 to
+±0.009 — most of the early instability was undertrained seeds, not capacity.
+
+The warning then fired again at 80, and that one was a false alarm. Validation F1
+had flattened (mean 0.8896 over epochs 41–60 against 0.8940 over 61–80, with
+±0.02 noise), and **on a plateau the argmax of a noisy series drifts late by
+chance**, so the test would have fired at any budget while each re-run bought
+only a luckier argmax. A 160-epoch probe confirmed it: W=32 seed 0 peaked at
+epoch 63 and early-stopped well inside the budget. The guard now compares the
+last `patience` epochs against the `patience` before them, scaled by the noise
+over both, and only warns when a real climb clears its own noise.
+
+Superseded results are kept, never overwritten: `cnn_w{16,32}_e40_seed_sweep.json`
+(40-epoch budget) and `cnn_w32_probe_seed0_e160_seed_sweep.json` (the probe).
 
 ## References
 
