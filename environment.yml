@@ -67,3 +67,8 @@ dependencies:
       - segmentation-models-pytorch==0.3.4
       # Multi-channel image augmentation for satellite patches.
       - albumentations==1.4.10
+      # Test suite (tests/, NOT the gitignored test/ artifacts dir). Installed
+      # via pip rather than as a conda dep on purpose: it is a pure-Python
+      # dev-only tool, and a conda re-solve risks shifting the GDAL / torch
+      # pins that the channel notes above warn about.
+      - pytest==8.3.*
