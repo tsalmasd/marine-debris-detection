@@ -401,13 +401,15 @@ Results (debris class, test split, 5 seeds, mean ± SD):
 | CNN-16 | 16 px | 0.720 ± 0.037 | 0.915 ± 0.008 | **0.806 ± 0.022** | 0.675 ± 0.031 | 0.894 ± 0.016 |
 | CNN-32 | 32 px | 0.768 ± 0.014 | 0.899 ± 0.022 | **0.828 ± 0.009** | 0.707 ± 0.014 | 0.890 ± 0.028 |
 | U-Net (6-band) | 256 px | 0.714 ± 0.087 | 0.910 ± 0.021 | **0.798 ± 0.060** | 0.668 ± 0.083 | — |
+| U-Net (7-band + aug) | 256 px | 0.787 ± 0.080 | 0.878 ± 0.041 | **0.826 ± 0.045** | 0.707 ± 0.065 | — |
 
-Reading: **the curve is flat from 1 px to 32 px.** CNN-32 is nominally the
+Reading: **the curve is flat from 1 px to 256 px.** CNN-32 is nominally the
 highest F1 of any model here, but it leads the RF by 0.010 with a seed spread of
 ±0.009 — about one SD, which this test split cannot resolve (see the 381-pixel
-caveat above). The honest statement is that 1-, 16- and 32-pixel context all
-finish level, and the 256-pixel U-Net is nominally lowest with six times the
-spread. The paired bootstrap above covers all four models and agrees: no F1 or
+caveat above). The honest statement is that every context length from 1
+to 256 pixels finishes level: the four band-matched models span 0.818, 0.806,
+0.828 and 0.826 mean F1 — a range of 0.022 against seed spreads of ±0.003 to
+±0.045. The paired bootstrap above covers all four models and agrees: no F1 or
 IoU difference between any pair is resolvable, and what context buys is recall
 at the cost of precision.
 
@@ -416,13 +418,52 @@ Both CNNs sit at high recall against lower precision, which is the
 **average precision of ~0.89** is the strongest ranking of any model measured so
 far, against a random-ranking floor of 0.00196.
 
-Two confounds to state plainly. The U-Net row is the **6-band** model without
-B06, so the CNN-vs-U-Net gap mixes architecture with band availability until
-that is retrained (`NEXT_STEPS.md`). And runs are not bit-reproducible:
+One confound remains. Runs are not bit-reproducible:
 `cudnn.benchmark` is on and no deterministic-algorithm flag is set, so a seed
 fixes the data order and initialisation but not the kernels. Re-running W=32
 seed 0 at a larger epoch budget gave val F1 0.9099 against 0.9107 — the same
 plateau, a different trajectory.
+
+### Band-matched U-Net: 7 bands + dihedral augmentation
+
+The original U-Net read the 6-band `DEFAULT_BANDS` set, so the CNN-vs-U-Net gap
+mixed architecture with band availability: only the RF and the CNNs could see
+B06, the red-edge band that makes FDI computable. That confound is now closed by
+retraining the U-Net on the **RF's own 7 bands**, with dihedral augmentation
+(the four rotations and the two flips, applied identically to image and mask):
+
+```bash
+python -m src.training.sweep_unet --bands rf --augment --epochs 80 --patience 15
+python -m src.validation.evaluate_unet --ckpt test/data/model/unet_rf7_aug.pt
+python -m src.validation.bootstrap --unet-ckpt test/data/model/unet_rf7_aug.pt
+```
+
+Recipes are named, not overwritten: `--bands/--augment` pick a tag (`rf7_aug`),
+the checkpoint becomes `unet_rf7_aug.pt` and every result file carries the same
+stem, so the 6-band records stay readable. The band list is written into the
+checkpoint and read back by every consumer, which makes a band/model mismatch —
+the one error that silently produces right-shaped output from the wrong spectra —
+impossible rather than merely unlikely.
+
+Over 5 seeds the recipe moves mean test F1 from 0.798 ± 0.060 to **0.826 ±
+0.045**. The gain (0.028) is smaller than the spread, so it is not a resolvable
+improvement; what did improve measurably is **precision**, 0.714 ± 0.087 →
+0.787 ± 0.080, and the spread itself shrank by a quarter. All five seeds
+early-stopped between epochs 21 and 60, comfortably inside the 80-epoch budget,
+so this recipe is not budget-limited (unlike the CNN sweeps — see below).
+
+**Selection picked the worst seed.** Validation F1 ranks seed 1 first (0.9266),
+and seed 1 has the *lowest* test F1 of the five (0.7615, against 0.8978 for
+seed 2, whose validation F1 was 0.9132). The promoted checkpoint is therefore a
+pessimistic draw here, and the bootstrap run on it reports U-Net F1 0.762
+[0.663, 0.844] — below both CNNs with CIs that exclude zero
+(`bootstrap_ci_unet_rf7_aug.json`). That contrast is an artifact of which seed
+validation happened to prefer, not a property of the architecture: at the
+seed-mean level the U-Net is level with the CNNs. It is a clean demonstration
+that **selection variance exceeds evaluation uncertainty** on this benchmark,
+and the reason both must be quoted. The protocol is kept intact anyway — the
+checkpoint is chosen on validation alone, and a post-hoc swap to the seed with
+the better test score is exactly the leak the protocol exists to prevent.
 
 ### Epoch budget: a plateau is not convergence failure
 
