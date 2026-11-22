@@ -29,6 +29,7 @@ import torch.nn as nn
 from sklearn.metrics import classification_report, f1_score
 from torch.utils.data import DataLoader
 
+from src.data.dataset_loader import DEFAULT_BANDS, MARIDA_BAND_ORDER, RF_BANDS
 from src.data.patch_dataset import (
     MaridaSegmentationDataset,
     compute_normalization_stats,
@@ -46,6 +47,67 @@ PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
 MODEL_DIR = "test/data/model"     # trained checkpoint
 VAL_OUTPUT_DIR = "test/data/val"  # validation metrics + reports
+
+BAND_SETS = {"default": DEFAULT_BANDS, "rf": RF_BANDS, "all": MARIDA_BAND_ORDER}
+
+
+def add_recipe_args(parser):
+    """
+    The flags that define a training recipe, shared with ``sweep_unet``.
+
+    Defined once so the two entrypoints cannot drift: a sweep that trained on
+    different bands than its single-run counterpart would be undetectable in the
+    output files.
+    """
+    parser.add_argument("--bands", choices=sorted(BAND_SETS), default="default",
+                        help="Input band set. 'default' is the original 6-band "
+                             "subset; 'rf' is the 7 bands the Random Forest "
+                             "uses, including the red-edge B06 that the FDI "
+                             "needs. Defaults to 'default' so an unflagged run "
+                             "still reproduces the original result.")
+    parser.add_argument("--augment", action="store_true",
+                        help="Dihedral augmentation (k*90-degree rotations and "
+                             "flips) on the train split only.")
+    return parser
+
+
+LEGACY_TAG = "baseline"       # the original 6-band, un-augmented recipe
+
+
+def recipe_tag(bands_key: str, augment: bool) -> str:
+    """
+    Short name for one training recipe: ``baseline``, ``rf7_aug``, ...
+
+    Every artifact a run writes is named from this, so two recipes can never
+    overwrite each other's checkpoint, history, metrics or PDF --
+    REVISED_PLAN.md's rule that recorded results are never overwritten.
+    """
+    if bands_key == "default" and not augment:
+        return LEGACY_TAG
+    return f"{bands_key}{len(BAND_SETS[bands_key])}" + ("_aug" if augment else "")
+
+
+def ckpt_name(tag: str) -> str:
+    """Checkpoint filename for a recipe (the original keeps ``unet_baseline.pt``)."""
+    return f"unet_{tag}.pt"
+
+
+def result_stem(tag: str) -> str:
+    """
+    Stem for a recipe's result files.
+
+    The original recipe keeps the historical stem ``unet``: ``unet_history.csv``,
+    ``unet_val_metrics.json`` and ``unet_test_metrics.json`` are already recorded
+    under it and are read by ``figures.py`` and ``ablation_features.py``, so
+    renaming them would quietly break those. New recipes get their own stem.
+    """
+    return "unet" if tag == LEGACY_TAG else f"unet_{tag}"
+
+
+def stem_for_ckpt(path: str) -> str:
+    """:func:`result_stem` for an arbitrary checkpoint path."""
+    base = os.path.splitext(os.path.basename(path))[0]
+    return "unet" if base == ckpt_name(LEGACY_TAG)[:-3] else base
 
 
 def masked_bce(criterion, logits, target, valid):
@@ -110,6 +172,7 @@ def fit_unet(
     pos_weight,
     device,
     *,
+    bands,
     epochs,
     lr,
     base_channels,
@@ -129,7 +192,9 @@ def fit_unet(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    model = build_unet(in_channels=6, n_classes=1, base_channels=base_channels).to(device)
+    model = build_unet(
+        in_channels=len(bands), n_classes=1, base_channels=base_channels
+    ).to(device)
     criterion = nn.BCEWithLogitsLoss(
         reduction="none",
         pos_weight=torch.tensor([pos_weight], device=device),
@@ -150,7 +215,7 @@ def fit_unet(
         if val_f1 > best_f1:
             best_f1, best_epoch, no_improve = val_f1, epoch, 0
             save_checkpoint(
-                model, ckpt_path, mean, std,
+                model, ckpt_path, mean, std, bands=bands,
                 extra={"best_epoch": epoch, "val_f1": float(val_f1), "seed": seed},
             )
             if verbose:
@@ -183,7 +248,11 @@ def main():
                         help="Enable mixed-precision training. Off by default: with the large "
                              "pos_weight the GradScaler path is numerically unstable (NaN loss), "
                              "and fp32 fits comfortably for this dataset size.")
+    add_recipe_args(parser)
     args = parser.parse_args()
+    bands = BAND_SETS[args.bands]
+    tag = recipe_tag(args.bands, args.augment)
+    stem = result_stem(tag)
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -192,6 +261,7 @@ def main():
     use_amp = args.amp and device == "cuda"
     torch.backends.cudnn.benchmark = True
     print(f"Device: {device} | AMP: {use_amp}")
+    print(f"Recipe '{tag}': bands ({len(bands)}) {bands} | augment: {args.augment}")
 
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(VAL_OUTPUT_DIR, exist_ok=True)
@@ -200,13 +270,18 @@ def main():
     val_split = os.path.join(SPLITS_DIR, "val_X.txt")
 
     print("Computing normalization stats on train split...")
-    mean, std = compute_normalization_stats(PATCHES_ROOT, train_split)
+    mean, std = compute_normalization_stats(PATCHES_ROOT, train_split, bands=bands)
     print(f"  per-channel mean: {np.round(mean, 2)}")
     print(f"  per-channel std : {np.round(std, 2)}")
 
     print("Loading datasets (cached in RAM)...")
-    train_ds = MaridaSegmentationDataset(PATCHES_ROOT, train_split, mean=mean, std=std)
-    val_ds = MaridaSegmentationDataset(PATCHES_ROOT, val_split, mean=mean, std=std)
+    train_ds = MaridaSegmentationDataset(
+        PATCHES_ROOT, train_split, bands=bands, mean=mean, std=std,
+        augment=args.augment, seed=args.seed,
+    )
+    val_ds = MaridaSegmentationDataset(
+        PATCHES_ROOT, val_split, bands=bands, mean=mean, std=std,
+    )
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
@@ -215,20 +290,22 @@ def main():
     print(f"Train patches: {len(train_ds)} | Val patches: {len(val_ds)} | "
           f"pos_weight: {pos_weight:.1f} (raw {raw_pos_weight:.1f}, capped at {args.max_pos_weight:.0f})")
 
-    n_params = sum(p.numel() for p in build_unet(in_channels=6, base_channels=args.base_channels).parameters())
+    n_params = sum(p.numel() for p in build_unet(
+        in_channels=len(bands), base_channels=args.base_channels).parameters())
     print(f"U-Net parameters: {n_params:,}")
 
-    ckpt_path = os.path.join(MODEL_DIR, "unet_baseline.pt")
+    ckpt_path = os.path.join(MODEL_DIR, ckpt_name(tag))
     result = fit_unet(
         train_loader, val_loader, mean, std, pos_weight, device,
-        epochs=args.epochs, lr=args.lr, base_channels=args.base_channels,
+        bands=bands, epochs=args.epochs, lr=args.lr,
+        base_channels=args.base_channels,
         patience=args.patience, use_amp=use_amp, ckpt_path=ckpt_path, seed=args.seed,
     )
     best_epoch, history = result["best_epoch"], result["history"]
     print(f"\nBest val F1 {result['best_f1']:.4f} at epoch {best_epoch}. Checkpoint: {ckpt_path}")
 
     # Persist the training history so the loss / val-F1 curve is reproducible.
-    history_path = os.path.join(VAL_OUTPUT_DIR, "unet_history.csv")
+    history_path = os.path.join(VAL_OUTPUT_DIR, f"{stem}_history.csv")
     with open(history_path, "w") as f:
         f.write("epoch,train_loss,val_f1\n")
         for e, l, v in history:
@@ -247,11 +324,13 @@ def main():
     print(report)
     metrics = compute_binary_metrics(y_val, y_pred)
 
-    metrics_prefix = os.path.join(VAL_OUTPUT_DIR, "unet_val")
+    metrics_prefix = os.path.join(VAL_OUTPUT_DIR, f"{stem}_val")
     save_metrics(
         metrics_prefix, metrics, report_text=report,
         extra={
-            "model": "unet",
+            "model": stem,
+            "bands": list(bands),
+            "augment": bool(args.augment),
             "split": "val",
             "best_epoch": best_epoch,
             "n_samples": int(len(y_val)),
@@ -264,12 +343,14 @@ def main():
     pdf_path = f"{metrics_prefix}_report.pdf"
     generate_pdf_report(
         pdf_path,
-        title="U-Net Baseline — Validation Set",
+        title=f"U-Net ({len(bands)}-band) — Validation Set (selection scores)",
         metrics=metrics,
         confusion=compute_confusion_matrix(y_val, y_pred),
         report_text=report,
         meta={
-            "model": f"U-Net (6-band, base_channels={args.base_channels})",
+            "model": (f"U-Net ({len(bands)}-band"
+                      f"{', augmented' if args.augment else ''}, "
+                      f"base_channels={args.base_channels})"),
             "split": "validation",
             "best epoch": best_epoch,
             "samples": f"{len(y_val):,} pixels (all valid, no subsampling)",

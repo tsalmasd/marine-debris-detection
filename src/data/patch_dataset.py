@@ -160,6 +160,20 @@ class MaridaSegmentationDataset(Dataset):
             )
         return self._rng
 
+    def reset_augmentation_rng(self, seed: int) -> None:
+        """
+        Re-seed the augmentation stream; for a dataset reused across runs.
+
+        The multi-seed sweep caches the dataset once and trains every seed from
+        it. Without this the RNG would be created during the first run and then
+        simply *continue*, so each later seed's augmentation stream would depend
+        on how many epochs the previous seeds happened to run -- the runs would
+        not be independently reproducible. Clearing it defers re-seeding to the
+        next ``__getitem__``, by which time the caller has set the torch seed.
+        """
+        self.seed = seed
+        self._rng = None
+
     def _augment_pair(self, img: np.ndarray, label: np.ndarray):
         """
         Dihedral augmentation of one (image, class mask) pair.
