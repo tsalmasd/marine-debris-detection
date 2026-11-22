@@ -37,6 +37,7 @@ Run from the repository root (needs the trained RF, U-Net and window CNNs):
     python -m src.validation.bootstrap --n-boot 10000 --threshold 0.4
     python -m src.validation.bootstrap --cnn-ckpt test/data/model/cnn_w16.pt
     python -m src.validation.bootstrap --cnn-ckpt ""      # RF vs U-Net only
+    python -m src.validation.bootstrap --unet-ckpt test/data/model/unet_rf7_aug.pt
 """
 
 import argparse
@@ -153,7 +154,8 @@ def cnn_patch_probs(spec: dict, img: np.ndarray, rows: np.ndarray,
 
 @torch.no_grad()
 def collect_patch_counts(threshold: float = 0.5, device: str | None = None,
-                         cnn_ckpts: list[str] | None = None):
+                         cnn_ckpts: list[str] | None = None,
+                         unet_ckpt: str = UNET_PATH):
     """
     Per-patch TP/FP/FN counts for every model over the test split.
 
@@ -173,9 +175,9 @@ def collect_patch_counts(threshold: float = 0.5, device: str | None = None,
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     clf, scaler = load_rf(RF_PREFIX)
-    model, mean, std = load_unet(UNET_PATH, device=device)
+    model, mean, std = load_unet(unet_ckpt, device=device)
     model.eval()
-    unet_bands = resolve_bands(UNET_PATH, model)
+    unet_bands = resolve_bands(unet_ckpt, model)
     cnns = load_window_cnns(cnn_ckpts or [], device)
 
     # The loop is driven by the U-Net's dataset, so it must be built with the
@@ -187,7 +189,7 @@ def collect_patch_counts(threshold: float = 0.5, device: str | None = None,
     names = ["rf", "unet"] + list(cnns)
     print(f"Device: {device} | patches: {len(ds)} | threshold: {threshold} | "
           f"models: {names}")
-    print(f"U-Net bands ({len(unet_bands)}): {unet_bands}")
+    print(f"U-Net: {unet_ckpt} | bands ({len(unet_bands)}): {unet_bands}")
 
     counts: dict[str, list] = {name: [] for name in names}
     for i in range(len(ds)):
@@ -333,12 +335,27 @@ def main() -> None:
                         help="window CNN checkpoints to include; missing files "
                              "are skipped, and an empty list reproduces the "
                              "original RF vs U-Net comparison.")
-    parser.add_argument("--out", default=os.path.join(OUTPUT_DIR, "bootstrap_ci.json"))
+    parser.add_argument("--unet-ckpt", default=UNET_PATH,
+                        help="U-Net checkpoint to include. Its band list is read "
+                             "from the checkpoint, so a 7-band recipe is scored "
+                             "on its own bands while the RF and the CNNs keep "
+                             "theirs -- which is what makes the band-matched "
+                             "comparison unconfounded.")
+    parser.add_argument("--out", default=None,
+                        help="output JSON; defaults to bootstrap_ci.json for the "
+                             "baseline U-Net and bootstrap_ci_{stem}.json for any "
+                             "other recipe, so no recorded result is overwritten.")
     args = parser.parse_args()
+
+    if args.out is None:
+        from src.training.train_unet import stem_for_ckpt
+        stem = stem_for_ckpt(args.unet_ckpt)
+        name = "bootstrap_ci.json" if stem == "unet" else f"bootstrap_ci_{stem}.json"
+        args.out = os.path.join(OUTPUT_DIR, name)
 
     cnn_ckpts = [c for c in args.cnn_ckpt if c]
     counts, patch_ids, n_debris = collect_patch_counts(
-        threshold=args.threshold, cnn_ckpts=cnn_ckpts)
+        threshold=args.threshold, cnn_ckpts=cnn_ckpts, unet_ckpt=args.unet_ckpt)
     res = bootstrap(counts, n_boot=args.n_boot, seed=args.seed)
     _print_report(res, len(patch_ids), n_debris, args.n_boot)
 
@@ -350,6 +367,7 @@ def main() -> None:
         "threshold": args.threshold,
         "models": [m for m in MODEL_ORDER if m in counts],
         "cnn_checkpoints": cnn_ckpts,
+        "unet_checkpoint": args.unet_ckpt,
         "unit_of_resampling": "patch (pixels within a patch are not independent)",
         "note": "Evaluation uncertainty for the promoted checkpoints only; "
                 "training/seed variance is reported separately by sweep_unet.py, "
