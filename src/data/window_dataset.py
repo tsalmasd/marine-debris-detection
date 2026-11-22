@@ -68,6 +68,59 @@ def _read_patch_ids(split_file: str) -> list[str]:
         return [line.strip() for line in f if line.strip()]
 
 
+def crop_window(padded: np.ndarray, r: int, c: int, window: int) -> np.ndarray:
+    """
+    The ``window``-sided crop of ``padded`` centred on padded coordinate (r, c).
+
+    Single definition of "centred", used by the dataset, by the augmentation
+    path and by the bootstrap, so the three cannot drift apart: the target pixel
+    always lands at offset ``window // 2``.
+    """
+    half = window // 2
+    return padded[:, r - half: r - half + window, c - half: c - half + window]
+
+
+def prepare_padded_patch(
+    img: np.ndarray,
+    window: int,
+    mean: np.ndarray | None = None,
+    std: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Normalize, sanitize and reflect-pad one patch so windows can be cut from it.
+
+    Three steps, in this order:
+
+    1. per-channel normalization with the *training* stats;
+    2. ``nan_to_num`` -- same reasoning as the segmentation dataset, a single
+       non-finite pixel propagates through the convolutions and poisons the
+       output (MARIDA has a few such patches);
+    3. reflect-pad by ``window // 2`` so windows centred on a border pixel still
+       exist and the centre pixel always comes from real data.
+
+    Shared with :mod:`src.validation.bootstrap` so a model scored there sees
+    pixels preprocessed exactly as they were in training.
+    """
+    img = img.astype(np.float32)
+    if mean is not None:
+        mean_arr = np.asarray(mean, dtype=np.float32)[:, None, None]
+        std_arr = np.asarray(std, dtype=np.float32)[:, None, None]
+        img = (img - mean_arr) / std_arr
+    img = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
+    half = window // 2
+    return np.pad(img, ((0, 0), (half, half), (half, half)), mode="reflect")
+
+
+def extract_windows(
+    padded: np.ndarray, rows: np.ndarray, cols: np.ndarray, window: int
+) -> np.ndarray:
+    """Stack the windows centred on each padded coordinate -> (N, C, W, W)."""
+    out = np.empty((len(rows), padded.shape[0], window, window), dtype=np.float32)
+    for i, (r, c) in enumerate(zip(rows, cols)):
+        out[i] = crop_window(padded, int(r), int(c), window)
+    return out
+
+
 def _augment_and_crop(
     padded: np.ndarray,
     r: int,
@@ -108,8 +161,7 @@ def _augment_and_crop(
         padded = padded[:, :, ::-1]
         c = size - 1 - c
 
-    half = window // 2
-    return padded[:, r - half: r - half + window, c - half: c - half + window]
+    return crop_window(padded, r, c, window)
 
 
 def compute_normalization_stats(
@@ -179,9 +231,6 @@ class MaridaWindowDataset(Dataset):
                     f"stats with the same bands you pass here."
                 )
 
-        mean_arr = None if mean is None else np.asarray(mean, dtype=np.float32)[:, None, None]
-        std_arr = None if std is None else np.asarray(std, dtype=np.float32)[:, None, None]
-
         ids = _read_patch_ids(split_file)
         self.patch_ids: list[str] = []
         self._patches: list[np.ndarray] = []   # reflect-padded, normalized
@@ -195,21 +244,7 @@ class MaridaWindowDataset(Dataset):
                 missing += 1
                 continue
             img, label = load_patch(patches_root, pid, bands=self.bands)
-            img = img.astype(np.float32)
-
-            if mean_arr is not None:
-                img = (img - mean_arr) / std_arr
-            # Same reasoning as the segmentation dataset: a single non-finite
-            # pixel propagates through the convolutions and poisons the output.
-            img = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
-
-            # Reflect-pad by W/2 so windows on the patch border still exist and
-            # the centre pixel always comes from real data.
-            padded = np.pad(
-                img,
-                ((0, 0), (self.half, self.half), (self.half, self.half)),
-                mode="reflect",
-            )
+            padded = prepare_padded_patch(img, window, mean, std)
             pi = len(self._patches)
             self._patches.append(padded)
             self.patch_ids.append(pid)
@@ -270,8 +305,7 @@ class MaridaWindowDataset(Dataset):
                 int(rng.integers(4)), bool(rng.random() < 0.5), bool(rng.random() < 0.5),
             )
         else:
-            h = self.half
-            crop = padded[:, r - h: r - h + self.window, c - h: c - h + self.window]
+            crop = crop_window(padded, int(r), int(c), self.window)
 
         return (
             torch.from_numpy(np.ascontiguousarray(crop)),  # (C, W, W)
