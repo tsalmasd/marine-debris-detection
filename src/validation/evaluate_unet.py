@@ -73,14 +73,24 @@ def main():
              "reported numbers reproducible. Pass a value selected on the VALIDATION "
              "split (see src/validation/threshold.py); never one chosen on test.",
     )
+    parser.add_argument(
+        "--ckpt", default=MODEL_PATH,
+        help="Checkpoint to evaluate. Output files are named after its stem, so "
+             "evaluating a new recipe cannot overwrite an older recipe's "
+             "recorded test metrics.",
+    )
     args = parser.parse_args()
+    # "unet_baseline.pt" -> "unet_test" (the historical name, which
+    # figures.py and ablation_features.py read); any other recipe -> its own.
+    from src.training.train_unet import stem_for_ckpt
+    out_tag = stem_for_ckpt(args.ckpt) + "_test"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device} | threshold: {args.threshold}")
+    print(f"Device: {device} | threshold: {args.threshold} | ckpt: {args.ckpt}")
 
     print("Loading trained U-Net checkpoint...")
-    model, mean, std = load_checkpoint(MODEL_PATH, device=device)
-    bands = resolve_bands(MODEL_PATH, model)
+    model, mean, std = load_checkpoint(args.ckpt, device=device)
+    bands = resolve_bands(args.ckpt, model)
 
     print(f"Loading test data ({len(bands)} bands: {bands})...")
     test_ds = MaridaSegmentationDataset(
@@ -116,13 +126,14 @@ def main():
         print(f"{name:>10s}: {value:.4f}")
 
     os.makedirs(TEST_OUTPUT_DIR, exist_ok=True)
-    metrics_prefix = os.path.join(TEST_OUTPUT_DIR, "unet_test")
+    metrics_prefix = os.path.join(TEST_OUTPUT_DIR, out_tag)
     save_metrics(
         metrics_prefix,
         metrics,
         report_text=report,
         extra={
-            "model": "unet",
+            "model": stem_for_ckpt(args.ckpt),
+            "bands": list(bands),
             "split": "test",
             "threshold": float(args.threshold),
             "n_samples": int(len(y_test)),
