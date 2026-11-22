@@ -33,8 +33,10 @@ classifier so that all three models predict per-pixel and are scored on the same
 labelled pixels; the superseded patch classifier remains importable as
 `CustomCNN`. With 1-, 16-, 32- and 256-pixel receptive fields now measured, the
 context curve is **flat out to 32 px** — CNN-32 leads the RF by 0.010 F1 against
-a ±0.009 seed spread, which this test split cannot resolve. Still open: the
-paired bootstrap does not yet cover the CNN, and the U-Net row is still the
+a ±0.009 seed spread, which this test split cannot resolve. The paired
+patch-level bootstrap now covers all four models (`bootstrap_ci.json`) and finds
+no resolvable F1 or IoU difference between any pair; precision falls and recall
+rises monotonically with receptive field. Still open: the U-Net row is the
 6-band model, so the CNN-vs-U-Net gap remains confounded by B06.
 
 **The two original models are level.** The gap in F1 and IoU is smaller than the

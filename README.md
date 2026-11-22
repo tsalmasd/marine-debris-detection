@@ -254,27 +254,56 @@ gap is smaller than the U-Net's seed spread. What separates them is an
 ### Statistical comparison (patch-level bootstrap)
 
 ```bash
-python -m src.validation.bootstrap         # writes bootstrap_ci.json
+python -m src.validation.bootstrap                 # all four models
+python -m src.validation.bootstrap --cnn-ckpt ""   # RF vs U-Net only
 ```
 
 Resamples the 359 test **patches** with replacement (2,000 times) and recomputes
 the metrics. Patches, not pixels: debris occurs in contiguous slicks, so pixels
 within a patch are not independent and resampling them would return an interval
-several times too narrow. Both models are scored on the same resampled sets, so
-the difference is *paired*.
+several times too narrow. All four models are scored on the same resampled sets,
+so every difference is *paired*. Each model's own preprocessing is applied to the
+same patch and the same `valid` mask, so a CNN is scored on precisely the pixels
+the other models are scored on (verified bit-identical against the training-time
+window dataset).
 
-| Metric | Random Forest | U-Net (promoted seed) | Δ (U-Net − RF), 95% CI | P(U-Net better) |
-|---|---|---|---|---|
-| Precision | 0.805 [0.717, 0.873] | 0.713 [0.600, 0.819] | **[−0.162, −0.015]** | 0.9% |
-| Recall | 0.824 [0.755, 0.878] | 0.895 [0.845, 0.940] | **[+0.016, +0.138]** | 99.5% |
-| F1 | 0.815 [0.749, 0.863] | 0.794 [0.714, 0.862] | [−0.076, +0.036] | 26.8% |
-| IoU | 0.687 [0.598, 0.760] | 0.658 [0.555, 0.757] | [−0.102, +0.052] | 26.8% |
+Promoted checkpoints, 95% percentile intervals:
 
-Reading: the precision and recall intervals **exclude zero** in opposite
-directions — those differences are real. The F1 and IoU intervals **include
-zero**, so no overall accuracy difference is detectable on this benchmark. The
-operating-point story is not a hedge; it is the only difference the data
-supports.
+| Model | Context | Precision | Recall | F1 | IoU |
+|---|---|---|---|---|---|
+| Random Forest | 1 px | 0.805 [0.717, 0.873] | 0.824 [0.755, 0.878] | 0.815 [0.749, 0.863] | 0.687 [0.598, 0.760] |
+| CNN-16 | 16 px | 0.786 [0.705, 0.859] | 0.908 [0.819, 0.978] | 0.843 [0.780, 0.897] | 0.728 [0.639, 0.813] |
+| CNN-32 | 32 px | 0.760 [0.670, 0.834] | 0.929 [0.865, 0.981] | 0.836 [0.775, 0.887] | 0.718 [0.633, 0.797] |
+| U-Net | 256 px | 0.713 [0.600, 0.819] | 0.895 [0.845, 0.940] | 0.794 [0.714, 0.862] | 0.658 [0.555, 0.757] |
+
+Paired contrasts (`paired_deltas` in the JSON holds all six pairs; the three
+against the baseline are shown here):
+
+| Contrast | Precision Δ, 95% CI | Recall Δ, 95% CI | F1 Δ, 95% CI |
+|---|---|---|---|
+| CNN-16 − RF | −0.019 [−0.085, +0.053] | +0.084 [−0.026, +0.184] | +0.028 [−0.040, +0.097] |
+| CNN-32 − RF | −0.045 [−0.105, +0.016] | **+0.105 [+0.020, +0.190]** | +0.021 [−0.033, +0.084] |
+| U-Net − RF | **−0.092 [−0.162, −0.015]** | **+0.071 [+0.016, +0.138]** | −0.021 [−0.076, +0.036] |
+
+Reading: **no F1 or IoU difference between any pair of the four models is
+resolvable on this benchmark** — all six paired F1 intervals include zero,
+including CNN-32 vs the U-Net (−0.042 [−0.097, +0.012], P = 7.3%). What context
+does buy is visible and monotone in the operating point: as the receptive field
+grows 1 → 16 → 32 → 256 px, precision falls 0.805 → 0.786 → 0.760 → 0.713 while
+recall rises 0.824 → 0.908 → 0.929 → 0.895. Spatial context trades precision for
+recall; it does not raise overall accuracy. Only two of those trades clear the
+noise: CNN-32 beats the RF on recall, and the U-Net's precision deficit against
+the RF.
+
+The single-model intervals are also wide enough to swallow the differences — each
+spans roughly ±0.06 F1 on 381 debris pixels — so this is a statement about what
+the benchmark can measure, not a claim that the models are identical.
+
+Note these rows are the **val-selected promoted checkpoints**, which is why they
+sit above the 5-seed means above (CNN-16 reads 0.843 here against a 0.806 ± 0.022
+mean). Promotion picks the best validation seed, so a promoted row is an
+optimistic draw from the seed distribution; quote the sweep means for the models'
+performance and these intervals for how precisely *one* checkpoint is pinned.
 
 Note the two uncertainties are distinct and neither subsumes the other. The
 bootstrap measures how precisely *one trained model's* score is known on *this*
@@ -378,8 +407,9 @@ highest F1 of any model here, but it leads the RF by 0.010 with a seed spread of
 ±0.009 — about one SD, which this test split cannot resolve (see the 381-pixel
 caveat above). The honest statement is that 1-, 16- and 32-pixel context all
 finish level, and the 256-pixel U-Net is nominally lowest with six times the
-spread. The paired patch-level bootstrap is what would turn "level" into an
-interval, and it does not yet cover the CNN.
+spread. The paired bootstrap above covers all four models and agrees: no F1 or
+IoU difference between any pair is resolvable, and what context buys is recall
+at the cost of precision.
 
 Both CNNs sit at high recall against lower precision, which is the
 `pos_weight=20` operating point, not an accuracy result. Their threshold-free
