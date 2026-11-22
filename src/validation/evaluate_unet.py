@@ -19,7 +19,7 @@ from sklearn.metrics import classification_report
 from torch.utils.data import DataLoader
 
 from src.data.patch_dataset import MaridaSegmentationDataset
-from src.models.unet import load_checkpoint
+from src.models.unet import load_checkpoint, resolve_bands
 from src.validation.metrics import (
     compute_binary_metrics,
     compute_confusion_matrix,
@@ -80,11 +80,13 @@ def main():
 
     print("Loading trained U-Net checkpoint...")
     model, mean, std = load_checkpoint(MODEL_PATH, device=device)
+    bands = resolve_bands(MODEL_PATH, model)
 
-    print("Loading test data...")
+    print(f"Loading test data ({len(bands)} bands: {bands})...")
     test_ds = MaridaSegmentationDataset(
         PATCHES_ROOT,
         os.path.join(SPLITS_DIR, "test_X.txt"),
+        bands=bands,
         mean=mean,
         std=std,
     )

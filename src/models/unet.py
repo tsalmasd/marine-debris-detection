@@ -210,15 +210,19 @@ def save_checkpoint(
     path: str,
     mean,
     std,
+    bands: list[str] | None = None,
     extra: dict | None = None,
 ) -> None:
     """
     Persist a trained U-Net together with everything inference needs.
 
     Stores the architecture config (so the model can be rebuilt without knowing
-    the hyperparameters) and the per-channel normalization stats (so inputs are
-    scaled at inference exactly as during training). ``extra`` records provenance
-    such as the best epoch / val F1.
+    the hyperparameters), the per-channel normalization stats (so inputs are
+    scaled at inference exactly as during training) and the **band list**, so
+    evaluation, export and the bootstrap read the input bands from the model
+    rather than assuming the 6-band default. Without that, a 7-band model is
+    silently fed the wrong spectra -- or crashes deep inside a forward pass.
+    ``extra`` records provenance such as the best epoch / val F1.
     """
     import numpy as np
 
@@ -233,6 +237,8 @@ def save_checkpoint(
         "norm_mean": np.asarray(mean, dtype="float32"),
         "norm_std": np.asarray(std, dtype="float32"),
     }
+    if bands is not None:
+        payload["bands"] = list(bands)
     if extra:
         payload["extra"] = extra
     torch.save(payload, path)
@@ -256,6 +262,46 @@ def load_checkpoint(path: str, device: str = "cpu"):
     model.load_state_dict(ckpt["state_dict"])
     model.to(device).eval()
     return model, ckpt["norm_mean"], ckpt["norm_std"]
+
+
+def load_checkpoint_bands(path: str) -> list[str] | None:
+    """
+    The band list a checkpoint was trained on, or ``None`` if it predates the key.
+
+    Callers should fall back to ``DEFAULT_BANDS`` on ``None``: every checkpoint
+    written before the band list was recorded is a 6-band model, and its
+    ``config["in_channels"]`` still proves it, so the fallback is checkable
+    rather than assumed.
+    """
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    bands = ckpt.get("bands")
+    return list(bands) if bands is not None else None
+
+
+def resolve_bands(path: str, model: UNet) -> list[str]:
+    """
+    The band list to feed ``model``, for any checkpoint old or new.
+
+    Falls back to ``DEFAULT_BANDS`` for checkpoints written before the band list
+    was recorded (all of which are 6-band), then **checks the result against the
+    model's input channel count**. That check is the point of this helper: a
+    band/model mismatch is the one failure mode that can otherwise produce a
+    result of the right shape from the wrong spectra, which no metric would
+    reveal. Every caller that builds model input should go through here.
+    """
+    from src.data.dataset_loader import DEFAULT_BANDS
+
+    bands = load_checkpoint_bands(path)
+    source = "checkpoint"
+    if bands is None:
+        bands, source = list(DEFAULT_BANDS), "DEFAULT_BANDS fallback"
+    if len(bands) != model.in_channels:
+        raise ValueError(
+            f"{path} expects {model.in_channels} input channels but its band "
+            f"list ({source}) has {len(bands)}: {bands}. Retrain with "
+            f"src.training.train_unet, which records the bands it used."
+        )
+    return bands
 
 
 if __name__ == "__main__":

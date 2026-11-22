@@ -54,6 +54,7 @@ from src.models.custom_cnn import load_checkpoint as load_cnn
 from src.models.custom_cnn import load_checkpoint_bands
 from src.models.random_forest import load_model as load_rf
 from src.models.unet import load_checkpoint as load_unet
+from src.models.unet import resolve_bands
 
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
@@ -174,14 +175,19 @@ def collect_patch_counts(threshold: float = 0.5, device: str | None = None,
     clf, scaler = load_rf(RF_PREFIX)
     model, mean, std = load_unet(UNET_PATH, device=device)
     model.eval()
+    unet_bands = resolve_bands(UNET_PATH, model)
     cnns = load_window_cnns(cnn_ckpts or [], device)
 
+    # The loop is driven by the U-Net's dataset, so it must be built with the
+    # U-Net's own bands; the RF and the CNNs read their bands separately below.
     ds = MaridaSegmentationDataset(
-        PATCHES_ROOT, os.path.join(SPLITS_DIR, "test_X.txt"), mean=mean, std=std
+        PATCHES_ROOT, os.path.join(SPLITS_DIR, "test_X.txt"),
+        bands=unet_bands, mean=mean, std=std,
     )
     names = ["rf", "unet"] + list(cnns)
     print(f"Device: {device} | patches: {len(ds)} | threshold: {threshold} | "
           f"models: {names}")
+    print(f"U-Net bands ({len(unet_bands)}): {unet_bands}")
 
     counts: dict[str, list] = {name: [] for name in names}
     for i in range(len(ds)):

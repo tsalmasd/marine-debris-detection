@@ -21,7 +21,7 @@ import torch
 
 from src.data.dataset_loader import _resolve_patch, load_patch, load_patch_profile
 from src.inference.export_predictions import write_prediction_geotiff
-from src.models.unet import load_checkpoint
+from src.models.unet import load_checkpoint, resolve_bands
 
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
@@ -51,6 +51,8 @@ def _predict_patch(model, img: np.ndarray, mean, std, device: str, threshold: fl
 def export_split_predictions(patches_root, split_file, model_path, out_dir, device) -> int:
     os.makedirs(out_dir, exist_ok=True)
     model, mean, std = load_checkpoint(model_path, device=device)
+    bands = resolve_bands(model_path, model)
+    print(f"Model input: {len(bands)} bands {bands}")
 
     patch_ids = _read_patch_ids(split_file)
     written, missing = 0, 0
@@ -60,7 +62,7 @@ def export_split_predictions(patches_root, split_file, model_path, out_dir, devi
             missing += 1
             continue
 
-        img, label = load_patch(patches_root, pid)
+        img, label = load_patch(patches_root, pid, bands=bands)
         profile = load_patch_profile(patches_root, pid)
         pred = _predict_patch(model, img.astype(np.float32), mean, std, device)
 

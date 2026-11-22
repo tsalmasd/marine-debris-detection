@@ -33,12 +33,13 @@ from matplotlib.colors import ListedColormap
 from sklearn.metrics import average_precision_score, precision_recall_curve
 from torch.utils.data import DataLoader
 
-from src.data.dataset_loader import DEFAULT_BANDS, RF_BANDS, load_patch
+from src.data.dataset_loader import RF_BANDS, load_patch
 from src.data.patch_dataset import DEBRIS_CLASS, MaridaSegmentationDataset, _read_patch_ids
 from src.features.spectral_indices import RF_FEATURE_NAMES
 from src.models.random_forest import load_model as load_rf
 from src.models.random_forest import predict as rf_predict
 from src.models.unet import load_checkpoint as load_unet
+from src.models.unet import resolve_bands
 
 PATCHES_ROOT = "data/raw/patches"
 SPLITS_DIR = "data/raw/splits"
@@ -121,9 +122,11 @@ def _op_point(metrics_json):
 
 
 def fig_pr_curve(path: str, device: str) -> None:
-    model, mean, std = load_unet(os.path.join(MODEL_DIR, "unet_baseline.pt"), device=device)
+    ckpt = os.path.join(MODEL_DIR, "unet_baseline.pt")
+    model, mean, std = load_unet(ckpt, device=device)
     ds = MaridaSegmentationDataset(
-        PATCHES_ROOT, os.path.join(SPLITS_DIR, "test_X.txt"), mean=mean, std=std
+        PATCHES_ROOT, os.path.join(SPLITS_DIR, "test_X.txt"),
+        bands=resolve_bands(ckpt, model), mean=mean, std=std,
     )
     loader = DataLoader(ds, batch_size=8, shuffle=False, num_workers=0)
     y, p = _collect_probs(model, loader, device)
@@ -189,7 +192,9 @@ def _pick_debris_patches(n):
 
 def fig_qualitative(path: str, device: str, n: int = 3) -> None:
     clf, scaler = load_rf(os.path.join(MODEL_DIR, "rf_baseline"))
-    umodel, mean, std = load_unet(os.path.join(MODEL_DIR, "unet_baseline.pt"), device=device)
+    unet_ckpt = os.path.join(MODEL_DIR, "unet_baseline.pt")
+    umodel, mean, std = load_unet(unet_ckpt, device=device)
+    unet_bands = resolve_bands(unet_ckpt, umodel)
     mean_a = np.asarray(mean, dtype=np.float32)[:, None, None]
     std_a = np.asarray(std, dtype=np.float32)[:, None, None]
 
@@ -201,7 +206,7 @@ def fig_qualitative(path: str, device: str, n: int = 3) -> None:
 
     for r, pid in enumerate(pids):
         bands_rf, label = load_patch(PATCHES_ROOT, pid, bands=RF_BANDS)
-        bands_u, _ = load_patch(PATCHES_ROOT, pid, bands=DEFAULT_BANDS)
+        bands_u, _ = load_patch(PATCHES_ROOT, pid, bands=unet_bands)
         valid = label > 0
 
         rf_mask = rf_predict(clf, scaler, bands_rf.astype(np.float32))
