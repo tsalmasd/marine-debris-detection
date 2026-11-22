@@ -86,6 +86,12 @@ class MaridaSegmentationDataset(Dataset):
             them once on the train split with :func:`compute_normalization_stats`.
         cache: preload every patch into RAM in ``__init__`` (fast epochs; the
             MARIDA splits are small enough to fit comfortably).
+        augment: dihedral augmentation (k*90-degree rotations and the two
+            flips), applied identically to the image and the class mask.
+            **Train split only** -- on val/test it would make the metrics
+            non-deterministic. Geometry only, no photometric jitter: the pixel
+            values are reflectances.
+        seed: seed for this dataset's augmentation RNG.
 
     Missing patches listed in the split file are skipped (with a warning),
     mirroring :func:`src.data.dataset_loader.load_split`.
@@ -99,10 +105,15 @@ class MaridaSegmentationDataset(Dataset):
         mean: np.ndarray | None = None,
         std: np.ndarray | None = None,
         cache: bool = True,
+        augment: bool = False,
+        seed: int = 0,
     ):
         self.patches_root = patches_root
         self.bands = bands
         self.cache = cache
+        self.augment = augment
+        self.seed = seed
+        self._rng: np.random.Generator | None = None
 
         self.mean = None if mean is None else np.asarray(mean, dtype=np.float32)[:, None, None]
         self.std = None if std is None else np.asarray(std, dtype=np.float32)[:, None, None]
@@ -131,8 +142,59 @@ class MaridaSegmentationDataset(Dataset):
         img, label = load_patch(self.patches_root, self.patch_ids[idx], bands=self.bands)
         return img.astype(np.float32), label.astype(np.int32)
 
+    def _rng_for_worker(self) -> np.random.Generator:
+        """
+        Augmentation RNG, created lazily so each DataLoader worker gets its own.
+
+        A ``Generator`` built in ``__init__`` would be *copied* into every worker
+        process, so all of them would replay an identical augmentation stream and
+        the effective diversity would drop by a factor of ``num_workers``.
+        ``torch.initial_seed()`` is already distinct per worker (PyTorch derives
+        it as base seed + worker id), so seeding from it gives each worker an
+        independent stream while staying reproducible. Same approach as
+        :class:`src.data.window_dataset.MaridaWindowDataset`.
+        """
+        if self._rng is None:
+            self._rng = np.random.default_rng(
+                (int(torch.initial_seed()) + self.seed) % (2 ** 32)
+            )
+        return self._rng
+
+    def _augment_pair(self, img: np.ndarray, label: np.ndarray):
+        """
+        Dihedral augmentation of one (image, class mask) pair.
+
+        Rotations by k*90 degrees and the two flips, applied with **identical
+        parameters** to the image and to the raw class mask -- and to the mask
+        *before* ``target`` and ``valid`` are derived from it, so all three stay
+        aligned by construction rather than by three separate transforms
+        agreeing. Geometry only: no brightness or colour jitter, because
+        reflectance values carry physical meaning here.
+
+        Unlike the window dataset there is no centre-pixel subtlety: the whole
+        mask moves with the whole image, so every pixel keeps its own label
+        wherever it lands.
+        """
+        rng = self._rng_for_worker()
+        k = int(rng.integers(4))
+        if k:
+            img = np.rot90(img, k, axes=(1, 2))
+            label = np.rot90(label, k, axes=(0, 1))
+        if rng.random() < 0.5:
+            img, label = img[:, :, ::-1], label[:, ::-1]
+        if rng.random() < 0.5:
+            img, label = img[:, ::-1, :], label[::-1, :]
+        return img, label
+
     def __getitem__(self, idx: int):
         img, label = self._cache[idx] if self.cache else self._load_raw(idx)
+
+        # Augment before normalization and before target/valid are derived. The
+        # transforms are geometric, so the order relative to normalization does
+        # not matter numerically -- but doing it here keeps the cached arrays
+        # untouched, which matters because the cache is shared across epochs.
+        if self.augment:
+            img, label = self._augment_pair(img, label)
 
         if self.mean is not None:
             img = (img - self.mean) / self.std
@@ -149,8 +211,8 @@ class MaridaSegmentationDataset(Dataset):
 
         return (
             torch.from_numpy(np.ascontiguousarray(img)),      # (C, H, W)
-            torch.from_numpy(target),                         # (H, W)
-            torch.from_numpy(valid),                          # (H, W)
+            torch.from_numpy(np.ascontiguousarray(target)),   # (H, W)
+            torch.from_numpy(np.ascontiguousarray(valid)),    # (H, W)
         )
 
     def compute_pos_weight(self) -> float:
